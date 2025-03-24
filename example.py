@@ -24,7 +24,7 @@ def main():
                         help="Title of the document to generate")
     parser.add_argument("--sections", type=int, default=5,
                         help="Number of main sections to generate (default: 5)")
-    parser.add_argument("--pages", type=int, default=None, 
+    parser.add_argument("--pages", type=int, default=15, 
                         help="Approximate length in pages (1 page ≈ 500 words)")
     parser.add_argument("--template", type=str, default="academic",
                         choices=["academic", "report", "blog"],
@@ -115,12 +115,7 @@ def main():
             output_path=args.output,
             target_length_words=args.pages * words_per_page if args.pages else None
         )
-        
-        print(f"\nDocument Preview (first 300 characters):")
-        print("-" * 50)
-        preview = document[:300] + "..." if len(document) > 300 else document
-        print(preview)
-        
+                
         print(f"\nDocument saved to: {args.output}")
     except Exception as e:
         print(f"Error generating document: {e}")

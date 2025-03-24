@@ -54,11 +54,7 @@ def main():
         output_format=args.format,
         output_path=args.output
     )
-    
-    print("\nDocument Preview (first 300 characters):")
-    print("-" * 50)
-    print(document[:300] + "...\n")
-    
+        
     print(f"Full document saved to: {args.output}")
     print("\nProcess completed successfully!")
     
