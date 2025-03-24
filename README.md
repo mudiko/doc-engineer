@@ -14,6 +14,8 @@ Doc Engineer streamlines document creation by allowing users to specify their re
 - **Customizable Document Parameters**: Specify length, structure, and complexity as needed
 - **Document-Wide Coherence**: AI evaluates the entire document for consistency and flow
 - **Chunking Support**: Handles generation of large documents through intelligent chunking
+- **API Quota Management**: Built-in retry mechanism with exponential backoff for API rate limits
+- **Robust Error Handling**: Graceful recovery from model errors and empty responses
 - **Multiple Output Formats**: Export documents as Markdown, HTML, or plain text
 - **Modular Architecture**: Highly extensible system for easy customization
 
@@ -22,6 +24,17 @@ Doc Engineer streamlines document creation by allowing users to specify their re
 - **Citation Support**: Automatic citation generation and management
 - **Search Integration**: Find and incorporate relevant information from specified sources
 - **Additional Templates**: More specialized document templates for various use cases
+
+## Milestones
+
+| Milestone | Status | Description |
+|-----------|--------|-------------|
+| ✅ 100-page documents | **COMPLETED** | Generate consistent 100-page documents in a single shot |
+| ⏳ Concurrent generation | PLANNED | Improve performance with parallel processing of document sections |
+| ⏳ Search integration | PLANNED | Incorporate external knowledge through search capabilities |
+| ⏳ Citation tools | PLANNED | Add automatic citation generation and management |
+| ⏳ Additional output formats | PLANNED | Support for more document output formats (PDF, DOCX, LaTeX) |
+| ⏳ Template library | PLANNED | Expand the collection of document templates for specific use cases |
 
 ## Modular Architecture
 

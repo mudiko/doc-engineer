@@ -53,30 +53,89 @@ class GeminiProvider:
     
     def generate_content(self, prompt: str, generation_config: Dict[str, Any]) -> Any:
         """Generate content using the Gemini model."""
-        try:
-            # Use the appropriate API based on what was initialized
-            if self._use_new_api:
-                # Newer client.models.generate_content method
-                response = self.client.models.generate_content(
-                    model=self.model_name, 
-                    contents=prompt,
-                    generation_config=generation_config
-                )
-                # Create a wrapper to maintain compatibility with the existing code
-                return SimpleNamespace(text=response.text)
-            else:
-                # Legacy API format
-                return self.model.generate_content(
-                    prompt,
-                    generation_config=generation_config
-                )
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Use the appropriate API based on what was initialized
+                if self._use_new_api:
+                    # Newer client.models.generate_content method
+                    response = self.client.models.generate_content(
+                        model=self.model_name, 
+                        contents=prompt,
+                        generation_config=generation_config
+                    )
+                    # Create a wrapper to maintain compatibility with the existing code
+                    # Check if response has text before accessing it
+                    if hasattr(response, 'text'):
+                        return SimpleNamespace(text=response.text)
+                    elif hasattr(response, 'candidates') and response.candidates:
+                        # Try to get text from first candidate
+                        if hasattr(response.candidates[0], 'content') and hasattr(response.candidates[0].content, 'parts'):
+                            parts = response.candidates[0].content.parts
+                            return SimpleNamespace(text=parts[0].text if parts else "")
+                        return SimpleNamespace(text="Empty response from model")
+                    else:
+                        # Handle empty response
+                        return SimpleNamespace(text="Empty response from model")
+                else:
+                    # Legacy API format
+                    response = self.model.generate_content(
+                        prompt,
+                        generation_config=generation_config
+                    )
+                    
+                    # Check if response has text before returning
+                    if hasattr(response, 'text'):
+                        return response
+                    elif hasattr(response, 'candidates') and response.candidates:
+                        # Try to get text from first candidate
+                        if hasattr(response.candidates[0], 'content') and hasattr(response.candidates[0].content, 'parts'):
+                            parts = response.candidates[0].content.parts
+                            return SimpleNamespace(text=parts[0].text if parts else "")
+                        return SimpleNamespace(text="Empty response from model")
+                    else:
+                        # Handle empty response
+                        return SimpleNamespace(text="Empty response from model")
+                    
+            except Exception as e:
+                error_message = str(e)
+                error_details = getattr(e, 'details', '')
                 
-        except Exception as e:
-            print(f"Error generating content with Gemini: {e}")
-            # Include a more verbose error message for debugging
-            if hasattr(e, 'details'):
-                print(f"Error details: {e.details}")
-            raise
+                # Check if this is an empty response error
+                if "requires a single candidate" in error_message or "candidates` is empty" in error_message:
+                    print(f"Received empty response from model. Retrying...")
+                    retry_count += 1
+                    wait_time = 10  # Wait 10 seconds before retrying for empty response
+                    import time
+                    time.sleep(wait_time)
+                    continue
+                # Check if this is a quota error (HTTP 429)
+                elif "429" in error_message or "quota" in error_message.lower() or "exhausted" in error_message.lower():
+                    retry_count += 1
+                    wait_time = 60  # Wait for 60 seconds on quota error
+                    
+                    # Try to extract retry delay if available
+                    import re
+                    retry_match = re.search(r'retry_delay\s*{\s*seconds:\s*(\d+)', str(error_details))
+                    if retry_match:
+                        wait_time = int(retry_match.group(1))
+                    
+                    if retry_count < max_retries:
+                        print(f"Quota limit reached. Waiting for {wait_time} seconds before retry ({retry_count}/{max_retries})...")
+                        import time
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"Maximum retries reached ({max_retries}). Giving up.")
+                
+                # For other errors or after max retries
+                print(f"Error generating content with Gemini: {e}")
+                # Include a more verbose error message for debugging
+                if error_details:
+                    print(f"Error details: {error_details}")
+                raise
 
 
 class MockProvider:
@@ -199,35 +258,23 @@ Format the content in Markdown with proper headings and paragraphs.
 IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
 Do NOT wrap your response in ```markdown or any other code block format."""
 
-        try:
-            response = self.model_provider.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.7,
-                    "max_output_tokens": min(self._words_to_tokens(section.estimated_length), self.max_output_tokens),
-                }
-            )
-            
-            # Clean any potential markdown code blocks from the response
-            cleaned_content = self._clean_markdown_blocks(response.text)
-            
-            # Return the generated section
-            return GeneratedSection(
-                title=section.title,
-                content=cleaned_content,
-                subsections=section.subsections,
-                level=section.level
-            )
-            
-        except Exception as e:
-            print(f"Error generating content for '{section.title}': {e}")
-            # Return a minimal section in case of error
-            return GeneratedSection(
-                title=section.title,
-                content=f"Error generating content for this section: {str(e)}",
-                subsections=section.subsections,
-                level=section.level
-            )
+        content = self._safely_generate_content(
+            prompt,
+            temperature=0.7,
+            max_output_tokens=min(self._words_to_tokens(section.estimated_length), self.max_output_tokens),
+            purpose=f"generating content for section '{section.title}'"
+        )
+        
+        # Clean any potential markdown code blocks from the response
+        cleaned_content = self._clean_markdown_blocks(content)
+        
+        # Return the generated section
+        return GeneratedSection(
+            title=section.title,
+            content=cleaned_content,
+            subsections=section.subsections,
+            level=section.level
+        )
     
     def _generate_chunked_section_content(
         self,
@@ -276,23 +323,16 @@ Do NOT wrap your response in ```markdown or any other code block format."""
                 context=context if is_first_chunk else None
             )
             
-            try:
-                response = self.model_provider.generate_content(
-                    chunk_prompt,
-                    generation_config={
-                        "temperature": 0.7,
-                        "max_output_tokens": min(self._words_to_tokens(chunk_word_count * 1.2), self.max_output_tokens),
-                    }
-                )
-                
-                chunk_content = self._clean_markdown_blocks(response.text)
-                all_content.append(chunk_content)
-                previous_chunk_content = chunk_content[-1000:] if len(chunk_content) > 1000 else chunk_content
-                
-            except Exception as e:
-                error_msg = f"Error generating chunk {i+1}/{num_chunks} for '{section.title}': {e}"
-                print(error_msg)
-                all_content.append(f"\n\n[Error generating content for this part: {str(e)}]\n\n")
+            chunk_content = self._safely_generate_content(
+                chunk_prompt,
+                temperature=0.7,
+                max_output_tokens=min(self._words_to_tokens(chunk_word_count * 1.2), self.max_output_tokens),
+                purpose=f"generating chunk {i+1}/{num_chunks} for section '{section.title}'"
+            )
+            
+            chunk_content = self._clean_markdown_blocks(chunk_content)
+            all_content.append(chunk_content)
+            previous_chunk_content = chunk_content[-1000:] if len(chunk_content) > 1000 else chunk_content
         
         # Combine all chunks into a single content
         combined_content = "\n\n".join(all_content)
@@ -445,20 +485,12 @@ Check for:
 If there are no consistency issues, respond with "No consistency issues found."
 If there are issues, describe them clearly and concisely, focusing on the most important ones first."""
 
-        try:
-            response = self.model_provider.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.3,
-                    "max_output_tokens": min(2000, self.max_output_tokens),
-                }
-            )
-            
-            return response.text
-            
-        except Exception as e:
-            print(f"Error checking consistency: {e}")
-            return f"Error checking consistency: {str(e)}"
+        return self._safely_generate_content(
+            prompt,
+            temperature=0.3,
+            max_output_tokens=min(2000, self.max_output_tokens),
+            purpose=f"checking consistency for section '{section_title}'"
+        )
     
     def _check_consistency_summarized(
         self,
@@ -490,19 +522,14 @@ Create a concise summary (150-200 words) that captures:
 3. Academic tone and approach
 4. The logical flow between these sections"""
 
-                try:
-                    summary_response = self.model_provider.generate_content(
-                        summary_prompt,
-                        generation_config={
-                            "temperature": 0.3,
-                            "max_output_tokens": 1000,
-                        }
-                    )
-                    
-                    section_summaries.append(f"Sections {i+1}-{i+len(group)}:\n{summary_response.text}")
-                except Exception as e:
-                    print(f"Error generating summary for sections {i+1}-{i+len(group)}: {e}")
-                    section_summaries.append(f"Sections {i+1}-{i+len(group)}: Error generating summary")
+                summary_text = self._safely_generate_content(
+                    summary_prompt,
+                    temperature=0.3,
+                    max_output_tokens=1000,
+                    purpose=f"summary for sections {i+1}-{i+len(group)}"
+                )
+                
+                section_summaries.append(f"Sections {i+1}-{i+len(group)}:\n{summary_text}")
         else:
             # Process each section individually if there aren't too many
             for i, section in enumerate(previous_sections):
@@ -516,19 +543,14 @@ Create a concise summary (100 words) that captures:
 2. Key terminology and definitions
 3. Academic tone and approach"""
 
-                try:
-                    summary_response = self.model_provider.generate_content(
-                        summary_prompt,
-                        generation_config={
-                            "temperature": 0.3,
-                            "max_output_tokens": 500,
-                        }
-                    )
-                    
-                    section_summaries.append(f"Section: {section.title}\n{summary_response.text}")
-                except Exception as e:
-                    print(f"Error generating summary for section {section.title}: {e}")
-                    section_summaries.append(f"Section: {section.title}\nError generating summary")
+                summary_text = self._safely_generate_content(
+                    summary_prompt,
+                    temperature=0.3,
+                    max_output_tokens=500,
+                    purpose=f"summary for section {section.title}"
+                )
+                
+                section_summaries.append(f"Section: {section.title}\n{summary_text}")
         
         # Now check consistency with the summaries
         summaries_text = "\n\n".join(section_summaries)
@@ -550,20 +572,49 @@ Check for:
 If there are no consistency issues, respond with "No consistency issues found."
 If there are issues, describe them clearly and concisely, focusing on the most important ones first."""
 
+        consistency_text = self._safely_generate_content(
+            consistency_prompt,
+            temperature=0.3,
+            max_output_tokens=min(2000, self.max_output_tokens),
+            purpose="consistency check with summaries"
+        )
+        
+        return consistency_text
+    
+    def _safely_generate_content(
+        self,
+        prompt: str,
+        temperature: float = 0.7,
+        max_output_tokens: int = 1000,
+        purpose: str = "content"
+    ) -> str:
+        """
+        Generate content with error handling, returning a default message if generation fails.
+        
+        Args:
+            prompt (str): The prompt to send to the model
+            temperature (float): Generation temperature
+            max_output_tokens (int): Maximum tokens to generate
+            purpose (str): Description of what's being generated (for error messages)
+            
+        Returns:
+            str: Generated content or error message
+        """
         try:
             response = self.model_provider.generate_content(
-                consistency_prompt,
+                prompt,
                 generation_config={
-                    "temperature": 0.3,
-                    "max_output_tokens": min(2000, self.max_output_tokens),
+                    "temperature": temperature,
+                    "max_output_tokens": max_output_tokens,
                 }
             )
             
             return response.text
             
         except Exception as e:
-            print(f"Error checking consistency with summaries: {e}")
-            return f"Error checking consistency: {str(e)}"
+            error_message = f"Error generating {purpose}: {str(e)}"
+            print(error_message)
+            return f"[{error_message}]"
     
     def evaluate_document_sections(
         self,
@@ -605,46 +656,40 @@ And so on for each section.
 
 Focus on constructive feedback that will help improve the quality of the document."""
 
-        try:
-            response = self.model_provider.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.3,
-                    "max_output_tokens": min(self._words_to_tokens(approximate_word_count * 0.5), self.max_output_tokens),
-                }
-            )
-            
-            # Parse the critique response into a dictionary
-            critiques = {}
-            current_section = None
-            current_critique = []
-            
-            for line in response.text.split('\n'):
-                if line.startswith('SECTION '):
-                    # Save previous section if exists
-                    if current_section is not None and current_critique:
-                        critiques[current_section] = '\n'.join(current_critique)
-                        current_critique = []
-                    
-                    # Extract section number
-                    try:
-                        section_text = line.split(':')[0].strip()
-                        current_section = int(section_text.replace('SECTION ', ''))
-                    except (ValueError, IndexError):
-                        print(f"Warning: Couldn't parse section number from line: {line}")
-                        current_section = None
-                elif current_section is not None:
-                    current_critique.append(line)
-            
-            # Add the last section
-            if current_section is not None and current_critique:
-                critiques[current_section] = '\n'.join(current_critique)
-            
-            return critiques
-            
-        except Exception as e:
-            print(f"Error evaluating document sections: {e}")
-            return {0: f"Error evaluating document: {str(e)}"}
+        response_text = self._safely_generate_content(
+            prompt,
+            temperature=0.3,
+            max_output_tokens=min(self._words_to_tokens(approximate_word_count * 0.5), self.max_output_tokens),
+            purpose="document evaluation"
+        )
+        
+        # Parse the critique response into a dictionary
+        critiques = {}
+        current_section = None
+        current_critique = []
+        
+        for line in response_text.split('\n'):
+            if line.startswith('SECTION '):
+                # Save previous section if exists
+                if current_section is not None and current_critique:
+                    critiques[current_section] = '\n'.join(current_critique)
+                    current_critique = []
+                
+                # Extract section number
+                try:
+                    section_text = line.split(':')[0].strip()
+                    current_section = int(section_text.replace('SECTION ', ''))
+                except (ValueError, IndexError):
+                    print(f"Warning: Couldn't parse section number from line: {line}")
+                    current_section = None
+            elif current_section is not None:
+                current_critique.append(line)
+        
+        # Add the last section
+        if current_section is not None and current_critique:
+            critiques[current_section] = '\n'.join(current_critique)
+        
+        return critiques
 
     def _evaluate_document_sections_chunked(
         self,
@@ -711,47 +756,41 @@ And so on for each section.
 Focus on constructive feedback that will help improve the quality of the document.
 IMPORTANT: Use the SECTION numbers as given in this prompt (starting from 0 for the first section in this chunk)."""
 
-        try:
-            approximate_word_count = sum(len(section.content) for section in chunk_sections) / 5
-            response = self.model_provider.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.3,
-                    "max_output_tokens": min(self._words_to_tokens(approximate_word_count * 0.5), self.max_output_tokens),
-                }
-            )
-            
-            # Parse the critique response into a dictionary
-            critiques = {}
-            current_section = None
-            current_critique = []
-            
-            for line in response.text.split('\n'):
-                if line.startswith('SECTION '):
-                    # Save previous section if exists
-                    if current_section is not None and current_critique:
-                        critiques[current_section] = '\n'.join(current_critique)
-                        current_critique = []
-                    
-                    # Extract section number
-                    try:
-                        section_text = line.split(':')[0].strip()
-                        current_section = int(section_text.replace('SECTION ', ''))
-                    except (ValueError, IndexError):
-                        print(f"Warning: Couldn't parse section number from line: {line}")
-                        current_section = None
-                elif current_section is not None:
-                    current_critique.append(line)
-            
-            # Add the last section
-            if current_section is not None and current_critique:
-                critiques[current_section] = '\n'.join(current_critique)
-            
-            return critiques
-            
-        except Exception as e:
-            print(f"Error evaluating document chunk {chunk_index+1}/{total_chunks}: {e}")
-            return {0: f"Error evaluating document chunk: {str(e)}"}
+        approximate_word_count = sum(len(section.content) for section in chunk_sections) / 5
+        response_text = self._safely_generate_content(
+            prompt,
+            temperature=0.3,
+            max_output_tokens=min(self._words_to_tokens(approximate_word_count * 0.5), self.max_output_tokens),
+            purpose=f"evaluating document chunk {chunk_index+1}/{total_chunks}"
+        )
+        
+        # Parse the critique response into a dictionary
+        critiques = {}
+        current_section = None
+        current_critique = []
+        
+        for line in response_text.split('\n'):
+            if line.startswith('SECTION '):
+                # Save previous section if exists
+                if current_section is not None and current_critique:
+                    critiques[current_section] = '\n'.join(current_critique)
+                    current_critique = []
+                
+                # Extract section number
+                try:
+                    section_text = line.split(':')[0].strip()
+                    current_section = int(section_text.replace('SECTION ', ''))
+                except (ValueError, IndexError):
+                    print(f"Warning: Couldn't parse section number from line: {line}")
+                    current_section = None
+            elif current_section is not None:
+                current_critique.append(line)
+        
+        # Add the last section
+        if current_section is not None and current_critique:
+            critiques[current_section] = '\n'.join(current_critique)
+        
+        return critiques
 
     def revise_section(
         self,
@@ -793,29 +832,23 @@ IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
 Do NOT wrap your response in ```markdown or any other code block format.
 DO NOT include "Revised Section: {original_section.title}" or any similar heading - start directly with the content."""
 
-        try:
-            response = self.model_provider.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.7,
-                    "max_output_tokens": min(self._words_to_tokens(approximate_word_count * 1.2), self.max_output_tokens),
-                }
-            )
-            
-            # Clean any potential markdown code blocks from the response
-            revised_content = self._clean_markdown_blocks(response.text)
-            
-            # Return the revised section
-            return GeneratedSection(
-                title=original_section.title,
-                content=revised_content,
-                subsections=original_section.subsections,
-                level=original_section.level
-            )
-            
-        except Exception as e:
-            print(f"Error revising section '{original_section.title}': {e}")
-            return original_section  # Return the original section in case of error
+        revised_content = self._safely_generate_content(
+            prompt,
+            temperature=0.7,
+            max_output_tokens=min(self._words_to_tokens(approximate_word_count * 1.2), self.max_output_tokens),
+            purpose=f"revising section '{original_section.title}'"
+        )
+        
+        # Clean any potential markdown code blocks from the response
+        revised_content = self._clean_markdown_blocks(revised_content)
+        
+        # Return the revised section
+        return GeneratedSection(
+            title=original_section.title,
+            content=revised_content,
+            subsections=original_section.subsections,
+            level=original_section.level
+        )
             
     def _revise_section_chunked(
         self,
@@ -880,23 +913,15 @@ Provide the revised content for this part only.
 IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
 Do NOT wrap your response in any headings or formats - start directly with the content."""
 
-            try:
-                response = self.model_provider.generate_content(
-                    chunk_prompt,
-                    generation_config={
-                        "temperature": 0.7,
-                        "max_output_tokens": self.max_output_tokens,
-                    }
-                )
-                
-                revised_chunk = self._clean_markdown_blocks(response.text)
-                revised_chunks.append(revised_chunk)
-                
-            except Exception as e:
-                error_msg = f"Error revising chunk {i+1}/{num_chunks} for '{original_section.title}': {e}"
-                print(error_msg)
-                # Use the original chunk in case of error
-                revised_chunks.append(chunk)
+            revised_chunk = self._safely_generate_content(
+                chunk_prompt,
+                temperature=0.7,
+                max_output_tokens=self.max_output_tokens,
+                purpose=f"revising chunk {i+1}/{num_chunks} for '{original_section.title}'"
+            )
+            
+            revised_chunk = self._clean_markdown_blocks(revised_chunk)
+            revised_chunks.append(revised_chunk)
         
         # Combine all revised chunks
         revised_content = "\n\n".join(revised_chunks)
@@ -957,18 +982,17 @@ Provide your response as a JSON object with this structure:
 }}"""
 
         try:
-            response = self.model_provider.generate_content(
+            json_text = self._safely_generate_content(
                 prompt,
-                generation_config={
-                    "temperature": 0.7,
-                    "max_output_tokens": min(4000, self.max_output_tokens),
-                }
+                temperature=0.7,
+                max_output_tokens=min(4000, self.max_output_tokens),
+                purpose="creating document plan"
             )
             
             import json
             
             # Clean and parse the JSON
-            json_text = self._extract_json(response.text)
+            json_text = self._extract_json(json_text)
             plan_data = json.loads(json_text)
             
             # Create the document plan with appropriate parsing
