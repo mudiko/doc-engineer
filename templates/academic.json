@@ -1,0 +1,25 @@
+{
+  "name": "academic",
+  "description": "Academic article template with standard sections",
+  "sections": [
+    "Introduction",
+    "Literature Review",
+    "Methodology",
+    "Results",
+    "Discussion",
+    "Conclusion"
+  ],
+  "formatting": {
+    "heading_style": "atx",
+    "citation_style": "APA",
+    "include_toc": true,
+    "include_abstract": true,
+    "include_references": true
+  },
+  "metadata": {
+    "font": "Times New Roman",
+    "font_size": 12,
+    "line_spacing": 2.0,
+    "margins": "1in"
+  }
+}

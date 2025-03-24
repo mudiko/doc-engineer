@@ -1,0 +1,24 @@
+{
+  "name": "report",
+  "description": "Business report template",
+  "sections": [
+    "Executive Summary",
+    "Introduction",
+    "Findings",
+    "Recommendations",
+    "Conclusion"
+  ],
+  "formatting": {
+    "heading_style": "atx",
+    "citation_style": "Chicago",
+    "include_toc": true,
+    "include_abstract": false,
+    "include_references": true
+  },
+  "metadata": {
+    "font": "Arial",
+    "font_size": 11,
+    "line_spacing": 1.5,
+    "margins": "1in"
+  }
+}
