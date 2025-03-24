@@ -136,13 +136,14 @@ class MockProvider:
             
             SECTION 1:
             The literature review is comprehensive but lacks critical analysis of the studies mentioned. 
-            """
+            """,
+            "revised_section": "This is improved content for the section based on critiques. It would normally be much longer and more detailed, with improvements addressing the specific issues raised in the critique."
         }
     
     def generate_content(self, prompt: str, generation_config: Dict[str, Any]) -> Any:
         """Generate content using pre-defined mock responses."""
         # Determine which type of response to return based on prompt content
-        if "Create a detailed academic document plan" in prompt:
+        if "Create a document outline" in prompt:
             response = self.responses["document_plan"]
         elif "Write the content for the following section" in prompt:
             response = self.responses["section_content"]
@@ -150,6 +151,8 @@ class MockProvider:
             response = self.responses["consistency"]
         elif "Evaluate this academic document" in prompt:
             response = self.responses["critique"]
+        elif "Revise the following section" in prompt:
+            response = self.responses["revised_section"]
         else:
             response = "This is a mock response."
         
@@ -338,8 +341,19 @@ Be specific and actionable with your critiques. Each section's feedback will be 
         plan_section: Section,
         previous_context: List[str]
     ) -> GeneratedSection:
-        """Generate revised content for a section based on critique and original content."""
-        context = "\n".join(previous_context) if previous_context else "None"
+        """
+        Generate revised content for a section based on critique and original content.
+        
+        Args:
+            original_section (GeneratedSection): The original section to revise
+            critique (str): Critique info for this section
+            plan_section (Section): The planned section with length, subsections, etc.
+            previous_context (List[str]): Context from previous sections
+            
+        Returns:
+            GeneratedSection: Revised section
+        """
+        context = "\n".join(previous_context) if previous_context else "No previous sections"
         
         prompt = f"""Revise the following section of an academic article based on critique feedback:
 
@@ -364,6 +378,7 @@ Requirements:
 3. Ensure smooth transitions with previous sections
 4. Maintain the original intent and structure
 5. Stay within the approximate target length
+6. Incorporate subsections as appropriate
 
 Format the revised content in Markdown with proper paragraphs.
 DO NOT include the title in your response.
@@ -382,15 +397,18 @@ IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
             # Clean any potential markdown code blocks from the response
             revised_content = self._clean_markdown_blocks(response.text)
             
+            # Create new GeneratedSection with revised content
             return GeneratedSection(
                 title=original_section.title,
                 content=revised_content,
-                subsections=original_section.subsections
+                subsections=original_section.subsections,
+                level=original_section.level
             )
             
         except Exception as e:
-            print(f"Error revising section {original_section.title}: {e}")
-            return original_section  # Return original if revision fails
+            print(f"Error revising section '{original_section.title}': {e}")
+            # Return original if revision fails
+            return original_section
     
     def create_document_plan(self, title: str, num_sections: int = 5, target_length_words: Optional[int] = None) -> DocumentPlan:
         """

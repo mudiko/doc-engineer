@@ -5,6 +5,7 @@ A modular document generation system that leverages AI to create well-structured
 ## Features
 
 - **AI-Powered Content Generation**: Generates comprehensive, structured documents on any topic
+- **Document-Wide Critique & Improvement**: AI evaluates the entire document for coherence and improves each section
 - **Section-by-Section Evaluation**: AI reviews each section for quality and coherence
 - **Template Support**: Apply different templates for academic papers, business reports, or blog posts
 - **Multiple Output Formats**: Export documents as Markdown, HTML, or plain text

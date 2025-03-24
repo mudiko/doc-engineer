@@ -55,7 +55,7 @@ class DocumentGenerator:
         print("=== Generating Document ===")
         
         # Step 1: Create a document plan
-        print("[1/4] Creating document plan...")
+        print("[1/5] Creating document plan...")
         document_plan = self.content_generator.create_document_plan(
             title, 
             num_sections,
@@ -76,11 +76,11 @@ class DocumentGenerator:
             print(f"  - Conclusion: {document_plan.conclusion.estimated_length} words")
         
         # Step 2: Apply template
-        print(f"[2/4] Using '{template_name}' template")
+        print(f"[2/5] Using '{template_name}' template")
         template = get_template(template_name)
         
         # Step 3: Generate content for each section
-        print("[3/4] Generating content...")
+        print("[3/5] Generating content...")
         generated_sections = []
         
         for i, section in enumerate(document_plan.sections):
@@ -95,11 +95,11 @@ class DocumentGenerator:
             
             generated_sections.append(gen_section)
         
-        # Step 4: Check consistency and evaluate
-        print("[4/4] Checking consistency and evaluating...")
-        consistency_issues = []
+        # Step 4: Generate document-wide critique
+        print("[4/5] Evaluating document coherence and quality...")
         
-        # Check consistency between sections
+        # First check for consistency issues between sections
+        consistency_issues = []
         for i, section in enumerate(generated_sections[1:], 1):
             previous_sections = generated_sections[:i]
             consistency_report = self.content_generator.check_consistency(
@@ -112,14 +112,64 @@ class DocumentGenerator:
         
         if consistency_issues:
             print(f"Found {len(consistency_issues)} consistency issues")
-        else:
-            print("No consistency issues found")
         
-        # Evaluate document sections
+        # Generate critiques for the entire document
+        print("Generating document-wide critique...")
         section_critiques = self.content_generator.evaluate_document_sections(
             title, 
             generated_sections
         )
+        
+        if section_critiques:
+            print(f"Generated critiques for {len(section_critiques)} sections")
+            
+        # Step 5: Revise and improve each section based on critiques
+        print("[5/5] Improving sections based on critique...")
+        
+        # Only revise if we have meaningful critiques
+        if section_critiques or consistency_issues:
+            improved_sections = []
+            
+            for i, section in enumerate(generated_sections):
+                section_critique = section_critiques.get(i, "")
+                
+                # Add any relevant consistency issues to the critique
+                consistency_critique = ""
+                for section_title, issue in consistency_issues:
+                    if section_title == section.title:
+                        consistency_critique = f"Consistency issues: {issue}"
+                
+                # Combine all critique info
+                combined_critique = section_critique
+                if consistency_critique:
+                    combined_critique += "\n\n" + consistency_critique
+                
+                # Only revise if we have critique feedback
+                if combined_critique.strip():
+                    print(f"  • Improving {section.title} based on critique")
+                    # Get the section from the document plan
+                    plan_section = document_plan.sections[i]
+                    
+                    # Get context from previous sections
+                    previous_context = [s.title + "\n" + s.content[:300] for s in improved_sections]
+                    
+                    # Revise the section based on critique
+                    improved_section = self.content_generator.revise_section(
+                        section,
+                        combined_critique,
+                        plan_section,
+                        previous_context
+                    )
+                    improved_sections.append(improved_section)
+                else:
+                    # No critique, just keep the original
+                    improved_sections.append(section)
+            
+            # Replace the sections with improved versions
+            generated_sections = improved_sections
+            print(f"Improved {len(section_critiques) + len(consistency_issues)} sections based on critique")
+        else:
+            print("No issues found - document is already well-structured and coherent")
         
         # Format the document
         print(f"Formatting with {template_name} template...")
