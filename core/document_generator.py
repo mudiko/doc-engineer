@@ -70,13 +70,9 @@ class DocumentGenerator:
         print("\nRevising sections based on evaluation...")
         revised_sections = self._revise_sections(sections, section_critiques, plan)
         
-        # 5. Check consistency of revised document
-        print("\nChecking document consistency...")
-        consistency_report = self.content_generator.check_consistency(revised_sections, plan)
-        
         # 6. Combine all content
         print("\nFinalizing document...")
-        document = self._combine_content(revised_sections, consistency_report)
+        document = self._combine_content(revised_sections)
         
         # 7. Save to file if specified
         if output_file:
@@ -88,9 +84,7 @@ class DocumentGenerator:
     
     def _combine_content(
         self,
-        sections: List[GeneratedSection],
-        consistency_report: str
-    ) -> str:
+        sections: List[GeneratedSection]) -> str:
         """Combine all sections into a complete document."""
         # Combine main content
         content = "# " + sections[0].title + "\n\n"
