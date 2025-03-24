@@ -165,6 +165,10 @@ class ContentGenerator:
     
     def __init__(self, model_provider: ModelProvider):
         self.model_provider = model_provider
+        # Approximate words per token for content generation
+        self.words_per_token = 0.6
+        # Maximum tokens per generation request (approximately 5000 words)
+        self.max_output_tokens = 8192
     
     def generate_section_content(
         self,
@@ -174,6 +178,10 @@ class ContentGenerator:
     ) -> GeneratedSection:
         """Generate content for a specific section."""
         context = self._create_section_context(section, previous_sections)
+        
+        # Check if the section needs chunking based on estimated length
+        if section.estimated_length > self._tokens_to_words(self.max_output_tokens):
+            return self._generate_chunked_section_content(title, section, context, previous_sections)
         
         prompt = f"""Write the content for the following section of an academic article about "{title}":
 
@@ -196,7 +204,7 @@ Do NOT wrap your response in ```markdown or any other code block format."""
                 prompt,
                 generation_config={
                     "temperature": 0.7,
-                    "max_output_tokens": 4000,
+                    "max_output_tokens": min(self._words_to_tokens(section.estimated_length), self.max_output_tokens),
                 }
             )
             
@@ -216,10 +224,190 @@ Do NOT wrap your response in ```markdown or any other code block format."""
             # Return a minimal section in case of error
             return GeneratedSection(
                 title=section.title,
-                content="Error generating content for this section.",
+                content=f"Error generating content for this section: {str(e)}",
                 subsections=section.subsections,
                 level=section.level
             )
+    
+    def _generate_chunked_section_content(
+        self,
+        title: str,
+        section: Section,
+        context: str,
+        previous_sections: Optional[List[GeneratedSection]] = None
+    ) -> GeneratedSection:
+        """Generate content for a large section in chunks and combine them."""
+        # Calculate number of chunks needed
+        max_words_per_chunk = self._tokens_to_words(self.max_output_tokens)
+        num_chunks = (section.estimated_length + max_words_per_chunk - 1) // max_words_per_chunk
+        
+        print(f"Chunking section '{section.title}' into {num_chunks} chunks (estimated length: {section.estimated_length} words)")
+        
+        # Adjust subsections if needed for chunking
+        if section.subsections and len(section.subsections) >= num_chunks:
+            # Use subsections to guide chunking
+            chunks_plan = self._plan_chunks_by_subsections(section.subsections, num_chunks)
+        else:
+            # Create generic chunk descriptions
+            chunks_plan = [f"Part {i+1} of {num_chunks}" for i in range(num_chunks)]
+        
+        all_content = []
+        previous_chunk_content = ""
+        
+        for i, chunk_desc in enumerate(chunks_plan):
+            is_first_chunk = i == 0
+            is_last_chunk = i == len(chunks_plan) - 1
+            
+            # Calculate target word count for this chunk
+            chunk_word_count = section.estimated_length // num_chunks
+            if is_last_chunk:
+                # Adjust last chunk to account for any remaining words
+                chunk_word_count = section.estimated_length - (chunk_word_count * (num_chunks - 1))
+            
+            # Create prompt for this chunk
+            chunk_prompt = self._create_chunk_prompt(
+                title=title,
+                section=section,
+                chunk_desc=chunk_desc, 
+                chunk_index=i,
+                total_chunks=num_chunks,
+                word_count=chunk_word_count,
+                previous_chunk_content=previous_chunk_content,
+                context=context if is_first_chunk else None
+            )
+            
+            try:
+                response = self.model_provider.generate_content(
+                    chunk_prompt,
+                    generation_config={
+                        "temperature": 0.7,
+                        "max_output_tokens": min(self._words_to_tokens(chunk_word_count * 1.2), self.max_output_tokens),
+                    }
+                )
+                
+                chunk_content = self._clean_markdown_blocks(response.text)
+                all_content.append(chunk_content)
+                previous_chunk_content = chunk_content[-1000:] if len(chunk_content) > 1000 else chunk_content
+                
+            except Exception as e:
+                error_msg = f"Error generating chunk {i+1}/{num_chunks} for '{section.title}': {e}"
+                print(error_msg)
+                all_content.append(f"\n\n[Error generating content for this part: {str(e)}]\n\n")
+        
+        # Combine all chunks into a single content
+        combined_content = "\n\n".join(all_content)
+        
+        return GeneratedSection(
+            title=section.title,
+            content=combined_content,
+            subsections=section.subsections,
+            level=section.level
+        )
+    
+    def _create_chunk_prompt(
+        self, 
+        title: str,
+        section: Section,
+        chunk_desc: str, 
+        chunk_index: int,
+        total_chunks: int,
+        word_count: int,
+        previous_chunk_content: str = "",
+        context: Optional[str] = None
+    ) -> str:
+        """Create a prompt for generating a specific chunk of content."""
+        
+        if chunk_index == 0:
+            # First chunk
+            prompt = f"""Write the beginning part of the section "{section.title}" for an academic article about "{title}":
+
+{context}
+
+This is part 1 of {total_chunks} for this section.
+
+Requirements:
+1. Write approximately {word_count} words
+2. Use academic language and tone
+3. Begin the section appropriately with an introduction
+4. Focus on: {chunk_desc}
+5. Remember this is only the first part - don't try to conclude the section
+
+Format the content in Markdown with proper headings and paragraphs.
+IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
+Do NOT wrap your response in ```markdown or any other code block format."""
+        
+        elif chunk_index == total_chunks - 1:
+            # Last chunk
+            prompt = f"""Write the final part of the section "{section.title}" for an academic article about "{title}":
+
+This is part {chunk_index+1} of {total_chunks} for this section.
+
+Previous part ended with:
+{previous_chunk_content}
+
+Requirements:
+1. Write approximately {word_count} words
+2. Use academic language and tone
+3. Focus on: {chunk_desc}
+4. Provide a proper conclusion to the entire section
+5. Ensure smooth continuation from the previous part
+
+Format the content in Markdown with proper headings and paragraphs.
+IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
+Do NOT wrap your response in ```markdown or any other code block format."""
+        
+        else:
+            # Middle chunk
+            prompt = f"""Write the middle part of the section "{section.title}" for an academic article about "{title}":
+
+This is part {chunk_index+1} of {total_chunks} for this section.
+
+Previous part ended with:
+{previous_chunk_content}
+
+Requirements:
+1. Write approximately {word_count} words
+2. Use academic language and tone
+3. Focus on: {chunk_desc}
+4. Ensure smooth continuation from the previous part
+5. Remember this is not the conclusion - continue the discussion
+
+Format the content in Markdown with proper headings and paragraphs.
+IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
+Do NOT wrap your response in ```markdown or any other code block format."""
+        
+        return prompt
+    
+    def _plan_chunks_by_subsections(self, subsections: List[str], num_chunks: int) -> List[str]:
+        """Plan how to distribute subsections across chunks."""
+        if len(subsections) <= num_chunks:
+            return subsections
+        
+        # Group subsections into chunks
+        chunks = []
+        subsections_per_chunk = len(subsections) / num_chunks
+        
+        for i in range(num_chunks):
+            start_idx = int(i * subsections_per_chunk)
+            end_idx = int((i + 1) * subsections_per_chunk)
+            if i == num_chunks - 1:
+                end_idx = len(subsections)  # Ensure we include all remaining subsections
+            
+            chunk_subsections = subsections[start_idx:end_idx]
+            if len(chunk_subsections) == 1:
+                chunks.append(chunk_subsections[0])
+            else:
+                chunks.append(", ".join(chunk_subsections))
+        
+        return chunks
+    
+    def _words_to_tokens(self, word_count: int) -> int:
+        """Convert word count to approximate token count."""
+        return int(word_count / self.words_per_token)
+    
+    def _tokens_to_words(self, token_count: int) -> int:
+        """Convert token count to approximate word count."""
+        return int(token_count * self.words_per_token)
     
     def check_consistency(
         self,
@@ -228,6 +416,13 @@ Do NOT wrap your response in ```markdown or any other code block format."""
         previous_sections: List[GeneratedSection]
     ) -> str:
         """Check consistency with previous sections."""
+        # Estimate the total size of content to check
+        total_content_size = len(content) + sum(len(section.content) for section in previous_sections)
+        
+        # If content is too large, use a summary approach
+        if total_content_size > 50000:  # Approximately 10k words
+            return self._check_consistency_summarized(content, section_title, previous_sections)
+        
         sections_text = "\n\n".join(
             f"Section: {section.title}\n{section.content[:300]}..."
             for section in previous_sections
@@ -248,92 +443,316 @@ Check for:
 4. Academic tone and style consistency
 
 If there are no consistency issues, respond with "No consistency issues found."
-If there are issues, provide a concise list of specific issues that need to be addressed.
-
-IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
-Do NOT wrap your response in ```markdown or any other code block format."""
+If there are issues, describe them clearly and concisely, focusing on the most important ones first."""
 
         try:
             response = self.model_provider.generate_content(
                 prompt,
                 generation_config={
                     "temperature": 0.3,
-                    "max_output_tokens": 1000,
+                    "max_output_tokens": min(2000, self.max_output_tokens),
                 }
             )
             
-            # Clean any potential markdown code blocks from the response
-            consistency_report = self._clean_markdown_blocks(response.text)
-            
-            # If no issues found, return empty string
-            if "No consistency issues found" in consistency_report:
-                return ""
-            
-            return consistency_report
+            return response.text
             
         except Exception as e:
-            print(f"Error checking consistency for '{section_title}': {e}")
-            return ""
+            print(f"Error checking consistency: {e}")
+            return f"Error checking consistency: {str(e)}"
+    
+    def _check_consistency_summarized(
+        self,
+        content: str,
+        section_title: str,
+        previous_sections: List[GeneratedSection]
+    ) -> str:
+        """Check consistency with a summarization approach for large documents."""
+        # First, generate summaries of previous sections
+        section_summaries = []
+        
+        # Group sections if there are many
+        if len(previous_sections) > 5:
+            # Process sections in smaller groups
+            for i in range(0, len(previous_sections), 3):
+                group = previous_sections[i:i+3]
+                group_text = "\n\n".join(
+                    f"Section: {section.title}\n{section.content[:200]}..."
+                    for section in group
+                )
+                
+                summary_prompt = f"""Summarize the key points, terminology, and style of these document sections:
+
+{group_text}
+
+Create a concise summary (150-200 words) that captures:
+1. Main topics and themes
+2. Key terminology and definitions
+3. Academic tone and approach
+4. The logical flow between these sections"""
+
+                try:
+                    summary_response = self.model_provider.generate_content(
+                        summary_prompt,
+                        generation_config={
+                            "temperature": 0.3,
+                            "max_output_tokens": 1000,
+                        }
+                    )
+                    
+                    section_summaries.append(f"Sections {i+1}-{i+len(group)}:\n{summary_response.text}")
+                except Exception as e:
+                    print(f"Error generating summary for sections {i+1}-{i+len(group)}: {e}")
+                    section_summaries.append(f"Sections {i+1}-{i+len(group)}: Error generating summary")
+        else:
+            # Process each section individually if there aren't too many
+            for i, section in enumerate(previous_sections):
+                summary_prompt = f"""Summarize the key points, terminology, and style of this document section:
+
+Section: {section.title}
+{section.content[:300]}...
+
+Create a concise summary (100 words) that captures:
+1. Main topics and themes
+2. Key terminology and definitions
+3. Academic tone and approach"""
+
+                try:
+                    summary_response = self.model_provider.generate_content(
+                        summary_prompt,
+                        generation_config={
+                            "temperature": 0.3,
+                            "max_output_tokens": 500,
+                        }
+                    )
+                    
+                    section_summaries.append(f"Section: {section.title}\n{summary_response.text}")
+                except Exception as e:
+                    print(f"Error generating summary for section {section.title}: {e}")
+                    section_summaries.append(f"Section: {section.title}\nError generating summary")
+        
+        # Now check consistency with the summaries
+        summaries_text = "\n\n".join(section_summaries)
+        
+        consistency_prompt = f"""Review the following new section for consistency with previous sections (summarized below):
+
+Previous Sections (Summarized):
+{summaries_text}
+
+New Section: {section_title}
+{content[:500]}...
+
+Check for:
+1. Logical flow and consistency with previous sections
+2. Consistent terminology and definitions
+3. Proper transitions between sections
+4. Academic tone and style consistency
+
+If there are no consistency issues, respond with "No consistency issues found."
+If there are issues, describe them clearly and concisely, focusing on the most important ones first."""
+
+        try:
+            response = self.model_provider.generate_content(
+                consistency_prompt,
+                generation_config={
+                    "temperature": 0.3,
+                    "max_output_tokens": min(2000, self.max_output_tokens),
+                }
+            )
+            
+            return response.text
+            
+        except Exception as e:
+            print(f"Error checking consistency with summaries: {e}")
+            return f"Error checking consistency: {str(e)}"
     
     def evaluate_document_sections(
         self,
         title: str,
         sections: List[GeneratedSection]
     ) -> Dict[int, str]:
-        """Evaluate the overall document and create specific critiques for each section."""
-        # Create a preview of the entire document (with truncated sections to fit token limits)
-        section_previews = []
-        for i, section in enumerate(sections):
-            # Truncate the content to avoid token limits
-            truncated_content = section.content[:300] + "..." if len(section.content) > 300 else section.content
-            section_previews.append(f"Section {i}: {section.title}\n{truncated_content}\n")
+        """Evaluate and critique document sections."""
+        # If document is too large, evaluate in chunks
+        total_content_length = sum(len(section.content) for section in sections)
+        approximate_word_count = total_content_length / 5  # Approximate 5 chars per word
         
-        document_preview = "\n".join(section_previews)
+        if approximate_word_count > self._tokens_to_words(self.max_output_tokens * 0.8):
+            return self._evaluate_document_sections_chunked(title, sections)
         
-        prompt = f"""Evaluate this academic document about "{title}" and provide specific improvement critiques for EACH SECTION.
+        sections_text = "\n\n".join(
+            f"SECTION {i}: {section.title}\n{section.content}"
+            for i, section in enumerate(sections)
+        )
+        
+        prompt = f"""Evaluate this academic document about "{title}" and provide a critique for each section:
 
-Document Sections:
-{document_preview}
+{sections_text}
 
-For EACH SECTION (0, 1, 2, etc.), provide:
-1. Specific issues with coherence, clarity, or style
-2. Content gaps or imbalances
-3. Academic tone inconsistencies
-4. Improvement suggestions for readability
-5. Transition improvement recommendations
+For EACH numbered section, provide a critique that addresses:
+1. Content quality and depth
+2. Organization and structure
+3. Academic tone and language
+4. Clarity and precision
+5. Specific suggestions for improvement
 
-Format your response as follows:
+Format your response with section numbers:
 SECTION 0:
-[Critique and improvement suggestions for the introduction]
+[Your critique of section 0]
 
 SECTION 1:
-[Critique and improvement suggestions for main section 1]
+[Your critique of section 1]
 
-... and so on for each section ...
+And so on for each section.
 
-Be specific and actionable with your critiques. Each section's feedback will be used to revise that section.
-"""
+Focus on constructive feedback that will help improve the quality of the document."""
 
         try:
             response = self.model_provider.generate_content(
                 prompt,
                 generation_config={
                     "temperature": 0.3,
-                    "max_output_tokens": 2000,
+                    "max_output_tokens": min(self._words_to_tokens(approximate_word_count * 0.5), self.max_output_tokens),
                 }
             )
             
-            from .document_parser import DocumentParser
-            # Get the raw text from the response
-            critique_text = self._clean_markdown_blocks(response.text)
+            # Parse the critique response into a dictionary
+            critiques = {}
+            current_section = None
+            current_critique = []
             
-            # Parse the critiques by section
-            return DocumentParser.parse_critiques(critique_text)
+            for line in response.text.split('\n'):
+                if line.startswith('SECTION '):
+                    # Save previous section if exists
+                    if current_section is not None and current_critique:
+                        critiques[current_section] = '\n'.join(current_critique)
+                        current_critique = []
+                    
+                    # Extract section number
+                    try:
+                        section_text = line.split(':')[0].strip()
+                        current_section = int(section_text.replace('SECTION ', ''))
+                    except (ValueError, IndexError):
+                        print(f"Warning: Couldn't parse section number from line: {line}")
+                        current_section = None
+                elif current_section is not None:
+                    current_critique.append(line)
+            
+            # Add the last section
+            if current_section is not None and current_critique:
+                critiques[current_section] = '\n'.join(current_critique)
+            
+            return critiques
             
         except Exception as e:
-            print(f"Error evaluating document: {e}")
-            return {}
-    
+            print(f"Error evaluating document sections: {e}")
+            return {0: f"Error evaluating document: {str(e)}"}
+
+    def _evaluate_document_sections_chunked(
+        self,
+        title: str,
+        sections: List[GeneratedSection]
+    ) -> Dict[int, str]:
+        """Evaluate document sections in chunks when the document is too large."""
+        critiques = {}
+        
+        # Determine a reasonable chunk size (max 3-4 sections per chunk)
+        max_sections_per_chunk = 3
+        section_chunks = []
+        
+        for i in range(0, len(sections), max_sections_per_chunk):
+            section_chunks.append(sections[i:i + max_sections_per_chunk])
+        
+        print(f"Evaluating document in {len(section_chunks)} chunks")
+        
+        for chunk_index, chunk_sections in enumerate(section_chunks):
+            chunk_critiques = self._evaluate_section_chunk(title, chunk_sections, chunk_index, len(section_chunks))
+            
+            # Calculate the correct section indices
+            base_index = chunk_index * max_sections_per_chunk
+            for relative_idx, critique in chunk_critiques.items():
+                absolute_idx = base_index + relative_idx
+                if absolute_idx < len(sections):
+                    critiques[absolute_idx] = critique
+        
+        return critiques
+
+    def _evaluate_section_chunk(
+        self,
+        title: str,
+        chunk_sections: List[GeneratedSection],
+        chunk_index: int,
+        total_chunks: int
+    ) -> Dict[int, str]:
+        """Evaluate a chunk of sections."""
+        sections_text = "\n\n".join(
+            f"SECTION {i}: {section.title}\n{section.content}"
+            for i, section in enumerate(chunk_sections)
+        )
+        
+        prompt = f"""Evaluate this chunk ({chunk_index+1} of {total_chunks}) of an academic document about "{title}" and provide a critique for each section:
+
+{sections_text}
+
+For EACH numbered section, provide a critique that addresses:
+1. Content quality and depth
+2. Organization and structure
+3. Academic tone and language
+4. Clarity and precision
+5. Specific suggestions for improvement
+
+Format your response with section numbers:
+SECTION 0:
+[Your critique of section 0]
+
+SECTION 1:
+[Your critique of section 1]
+
+And so on for each section.
+
+Focus on constructive feedback that will help improve the quality of the document.
+IMPORTANT: Use the SECTION numbers as given in this prompt (starting from 0 for the first section in this chunk)."""
+
+        try:
+            approximate_word_count = sum(len(section.content) for section in chunk_sections) / 5
+            response = self.model_provider.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.3,
+                    "max_output_tokens": min(self._words_to_tokens(approximate_word_count * 0.5), self.max_output_tokens),
+                }
+            )
+            
+            # Parse the critique response into a dictionary
+            critiques = {}
+            current_section = None
+            current_critique = []
+            
+            for line in response.text.split('\n'):
+                if line.startswith('SECTION '):
+                    # Save previous section if exists
+                    if current_section is not None and current_critique:
+                        critiques[current_section] = '\n'.join(current_critique)
+                        current_critique = []
+                    
+                    # Extract section number
+                    try:
+                        section_text = line.split(':')[0].strip()
+                        current_section = int(section_text.replace('SECTION ', ''))
+                    except (ValueError, IndexError):
+                        print(f"Warning: Couldn't parse section number from line: {line}")
+                        current_section = None
+                elif current_section is not None:
+                    current_critique.append(line)
+            
+            # Add the last section
+            if current_section is not None and current_critique:
+                critiques[current_section] = '\n'.join(current_critique)
+            
+            return critiques
+            
+        except Exception as e:
+            print(f"Error evaluating document chunk {chunk_index+1}/{total_chunks}: {e}")
+            return {0: f"Error evaluating document chunk: {str(e)}"}
+
     def revise_section(
         self,
         original_section: GeneratedSection,
@@ -341,63 +760,52 @@ Be specific and actionable with your critiques. Each section's feedback will be 
         plan_section: Section,
         previous_context: List[str]
     ) -> GeneratedSection:
-        """
-        Generate revised content for a section based on critique and original content.
+        """Revise a section based on critique."""
+        # Estimate word count of the original section
+        approximate_word_count = len(original_section.content) / 5
         
-        Args:
-            original_section (GeneratedSection): The original section to revise
-            critique (str): Critique info for this section
-            plan_section (Section): The planned section with length, subsections, etc.
-            previous_context (List[str]): Context from previous sections
+        # If section is too large, use chunked revision
+        if approximate_word_count > self._tokens_to_words(self.max_output_tokens * 0.7):
+            return self._revise_section_chunked(original_section, critique, plan_section, previous_context)
             
-        Returns:
-            GeneratedSection: Revised section
-        """
-        context = "\n".join(previous_context) if previous_context else "No previous sections"
+        context = "\n\n".join(previous_context) if previous_context else ""
         
-        prompt = f"""Revise the following section of an academic article based on critique feedback:
+        prompt = f"""Revise the following section based on the critique provided.
 
-Section Title: {original_section.title}
-Original Content: 
+Original Section: {original_section.title}
 {original_section.content}
 
-Critique and Improvements Needed:
+Critique:
 {critique}
 
-Previous Sections Context:
+Requirements:
+1. Address all issues mentioned in the critique
+2. Maintain or improve the section length (approximately {approximate_word_count:.0f} words)
+3. Ensure academic tone and language
+4. Improve clarity and precision
+5. Maintain the overall structure of subsections
+
+Previous context (for consistency):
 {context}
 
-Section Plan:
-- Description: {plan_section.description}
-- Subsections: {', '.join(plan_section.subsections)}
-- Estimated Length: {plan_section.estimated_length} words
-
-Requirements:
-1. Address ALL issues mentioned in the critique
-2. Improve readability and academic tone
-3. Ensure smooth transitions with previous sections
-4. Maintain the original intent and structure
-5. Stay within the approximate target length
-6. Incorporate subsections as appropriate
-
-Format the revised content in Markdown with proper paragraphs.
-DO NOT include the title in your response.
+Provide the fully revised section content in Markdown format.
 IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
-"""
+Do NOT wrap your response in ```markdown or any other code block format.
+DO NOT include "Revised Section: {original_section.title}" or any similar heading - start directly with the content."""
 
         try:
             response = self.model_provider.generate_content(
                 prompt,
                 generation_config={
-                    "temperature": 0.5,
-                    "max_output_tokens": 4000,
+                    "temperature": 0.7,
+                    "max_output_tokens": min(self._words_to_tokens(approximate_word_count * 1.2), self.max_output_tokens),
                 }
             )
             
             # Clean any potential markdown code blocks from the response
             revised_content = self._clean_markdown_blocks(response.text)
             
-            # Create new GeneratedSection with revised content
+            # Return the revised section
             return GeneratedSection(
                 title=original_section.title,
                 content=revised_content,
@@ -407,241 +815,282 @@ IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
             
         except Exception as e:
             print(f"Error revising section '{original_section.title}': {e}")
-            # Return original if revision fails
-            return original_section
+            return original_section  # Return the original section in case of error
+            
+    def _revise_section_chunked(
+        self,
+        original_section: GeneratedSection,
+        critique: str,
+        plan_section: Section,
+        previous_context: List[str]
+    ) -> GeneratedSection:
+        """Revise a large section in chunks based on critique."""
+        # Estimate word count and calculate chunks
+        approximate_word_count = len(original_section.content) / 5
+        max_words_per_chunk = self._tokens_to_words(self.max_output_tokens * 0.7)
+        num_chunks = (int(approximate_word_count) + max_words_per_chunk - 1) // max_words_per_chunk
+        
+        print(f"Revising section '{original_section.title}' in {num_chunks} chunks")
+        
+        # Split the content roughly into equal chunks - this is an approximation!
+        content = original_section.content
+        chunk_size = len(content) // num_chunks
+        content_chunks = []
+        
+        for i in range(num_chunks):
+            start = i * chunk_size
+            end = (i + 1) * chunk_size if i < num_chunks - 1 else len(content)
+            
+            # Try to find sentence boundaries for better splitting
+            if i > 0 and start > 0:
+                # Look for sentence-ending punctuation followed by space
+                for j in range(start - 1, max(start - 200, 0), -1):
+                    if content[j] in ['.', '!', '?'] and j+1 < len(content) and content[j+1].isspace():
+                        start = j + 2  # Start after the punctuation and space
+                        break
+            
+            content_chunks.append(content[start:end])
+        
+        revised_chunks = []
+        context_text = "\n\n".join(previous_context) if previous_context else ""
+        
+        for i, chunk in enumerate(content_chunks):
+            is_first_chunk = i == 0
+            is_last_chunk = i == len(content_chunks) - 1
+            
+            chunk_prompt = f"""Revise the following part ({i+1}/{num_chunks}) of section "{original_section.title}" based on the critique provided.
+
+Original Section Part:
+{chunk}
+
+Critique:
+{critique}
+
+Requirements:
+1. Address relevant issues mentioned in the critique
+2. Maintain or improve the part length
+3. Ensure academic tone and language
+4. Improve clarity and precision
+5. {'Start the section appropriately' if is_first_chunk else 'Ensure smooth continuation from previous part'}
+6. {'Provide a proper conclusion to the section' if is_last_chunk else 'Don\'t try to conclude the section yet'}
+
+{'Previous context (for consistency):\n' + context_text if is_first_chunk and context_text else ''}
+
+Provide the revised content for this part only.
+IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
+Do NOT wrap your response in any headings or formats - start directly with the content."""
+
+            try:
+                response = self.model_provider.generate_content(
+                    chunk_prompt,
+                    generation_config={
+                        "temperature": 0.7,
+                        "max_output_tokens": self.max_output_tokens,
+                    }
+                )
+                
+                revised_chunk = self._clean_markdown_blocks(response.text)
+                revised_chunks.append(revised_chunk)
+                
+            except Exception as e:
+                error_msg = f"Error revising chunk {i+1}/{num_chunks} for '{original_section.title}': {e}"
+                print(error_msg)
+                # Use the original chunk in case of error
+                revised_chunks.append(chunk)
+        
+        # Combine all revised chunks
+        revised_content = "\n\n".join(revised_chunks)
+        
+        return GeneratedSection(
+            title=original_section.title,
+            content=revised_content,
+            subsections=original_section.subsections,
+            level=original_section.level
+        )
     
     def create_document_plan(self, title: str, num_sections: int = 5, target_length_words: Optional[int] = None) -> DocumentPlan:
-        """
-        Create a detailed document plan with sections and subsections.
+        """Generate a document plan with sections and subsections."""
+        # Use the default target length if none provided
+        target_length = target_length_words or 4000
         
-        Args:
-            title (str): Document title
-            num_sections (int): Number of sections (including intro and conclusion)
-            target_length_words (Optional[int]): Target document length in words
-        """
-        # Set default lengths
-        default_intro_length = 500
-        default_main_section_length = 1000
-        default_conclusion_length = 500
-        
-        # If target length is specified, distribute words among sections
-        if target_length_words:
-            # Calculate main sections (excluding intro and conclusion)
-            main_sections_count = num_sections - 2
-            
-            # Distribute words strategically across sections
-            # Introduction: 15-20% for shorter docs, 10-15% for longer docs
-            intro_percent = 0.15 if target_length_words < 7500 else 0.10
-            words_intro = max(300, int(target_length_words * intro_percent))
-            
-            # Conclusion: 15-20% for shorter docs, 10-15% for longer docs
-            conclusion_percent = 0.15 if target_length_words < 7500 else 0.10
-            words_conclusion = max(300, int(target_length_words * conclusion_percent))
-            
-            # Distribute remaining words to main sections
-            remaining_words = target_length_words - words_intro - words_conclusion
-            
-            # If we have main sections, distribute words with emphasis on earlier sections
-            if main_sections_count > 0:
-                # Calculate words per main section (earlier sections get more words)
-                main_section_lengths = []
-                if main_sections_count == 1:
-                    # Only one main section gets all remaining words
-                    main_section_lengths = [remaining_words]
-                else:
-                    # Calculate weights for distribution
-                    # First sections get more words, decreasing gradually
-                    weights = []
-                    for i in range(main_sections_count):
-                        # Weights decrease: 1.0, 0.95, 0.9, 0.85...
-                        weight = 1.0 - (i * 0.05)
-                        weights.append(max(0.6, weight))
-                    
-                    # Normalize weights to sum to 1.0
-                    total_weight = sum(weights)
-                    weights = [w / total_weight for w in weights]
-                    
-                    # Distribute words based on weights
-                    main_section_lengths = [max(400, int(remaining_words * w)) for w in weights]
-                    
-                    # Adjust to ensure total matches the target
-                    total_allocated = sum(main_section_lengths)
-                    if total_allocated != remaining_words:
-                        # Distribute any difference to the sections proportionally
-                        difference = remaining_words - total_allocated
-                        for i in range(main_sections_count):
-                            # Add a portion of the difference to each section
-                            portion = int(difference * weights[i])
-                            main_section_lengths[i] += portion
-                            difference -= portion
-                            
-                            # Add any remaining difference to the last section
-                            if i == main_sections_count - 1 and difference != 0:
-                                main_section_lengths[i] += difference
-            else:
-                # No main sections (just intro and conclusion)
-                main_section_lengths = []
-                
-                # Adjust intro and conclusion lengths to match target
-                total = words_intro + words_conclusion
-                if total != target_length_words:
-                    # Distribute any difference proportionally
-                    difference = target_length_words - total
-                    intro_portion = int(difference * 0.5)
-                    words_intro += intro_portion
-                    words_conclusion += (difference - intro_portion)
-        else:
-            # Use default lengths if no target specified
-            words_intro = default_intro_length
-            words_conclusion = default_conclusion_length
-            main_section_lengths = [default_main_section_length] * (num_sections - 2)
-        
-        # Calculate total length
-        total_length = words_intro + words_conclusion
-        if len(main_section_lengths) > 0:
-            total_length += sum(main_section_lengths)
-        
-        # Create fallback plan with calculated lengths
-        fallback_plan = {
-            "introduction": {
-                "title": "Introduction",
-                "description": f"Introduction to {title}",
-                "subsections": ["Background", "Context", "Scope"],
-                "estimated_length": words_intro
-            },
-            "main_sections": [],
-            "conclusion": {
-                "title": "Conclusion",
-                "description": "Summary and implications",
-                "subsections": ["Summary", "Implications", "Future Directions"],
-                "estimated_length": words_conclusion
-            },
-            "total_estimated_length": total_length
-        }
-        
-        # Add main sections with calculated lengths
-        section_names = [
-            "Literature Review", "Methodology", "Results", "Discussion", 
-            "Applications", "Challenges", "Case Studies", "Analysis"
-        ]
-        
-        for i in range(num_sections - 2):
-            if i < len(section_names):
-                section_title = section_names[i]
-            else:
-                section_title = f"Section {i+1}"
-            
-            # Get appropriate word count
-            section_length = main_section_lengths[i] if i < len(main_section_lengths) else default_main_section_length
-            
-            # Determine number of subsections based on length
-            subsections = []
-            if section_length >= 1500:
-                subsections = ["Background", "Core Concepts", "Key Developments", "Analysis", "Applications", "Future Directions"]
-            elif section_length >= 1000:
-                subsections = ["Background", "Main Elements", "Analysis", "Applications"]
-            else:
-                subsections = ["Key Points", "Analysis", "Examples"]
-            
-            fallback_plan["main_sections"].append({
-                "title": section_title,
-                "description": f"Details about {section_title}",
-                "subsections": subsections,
-                "estimated_length": section_length
-            })
-        
-        # Try to generate a plan with the AI, but use fallback if it fails
-        try:
-            # Create a detailed prompt with specific lengths for each section
-            main_sections_json = []
-            for i, section in enumerate(fallback_plan["main_sections"]):
-                section_json = f"""
-        {{
-            "title": "{section['title']}",
-            "description": "{section['description']}",
-            "subsections": {str(section['subsections']).replace("'", '"')},
-            "estimated_length": {section['estimated_length']}
-        }}{"," if i < len(fallback_plan["main_sections"]) - 1 else ""}"""
-                main_sections_json.append(section_json)
-            
-            main_sections_prompt = "".join(main_sections_json)
-            
-            prompt = f"""Create a document outline for a {total_length}-word article about {title}.
+        prompt = f"""Create a document outline for an academic article about "{title}".
 
-Please provide a JSON object with this EXACT structure:
+Requirements:
+1. Create an organized plan with {num_sections} main sections (plus introduction and conclusion)
+2. For each section, provide:
+   - A descriptive title
+   - A brief description of what that section will cover
+   - 2-4 subsections as bullet points
+   - Estimated length in words
+3. Total document length should be approximately {target_length} words
+4. Structure should follow academic norms with:
+   - Introduction section
+   - {num_sections} main body sections
+   - Conclusion section
+5. Main body sections should be titled appropriately for an academic article on this topic
+6. Subsections should provide logical organization for each section
+
+Provide your response as a JSON object with this structure:
 {{
-    "introduction": {{
-        "title": "Introduction",
-        "description": "Introduction to {title}",
-        "subsections": ["Background", "Context", "Scope"],
-        "estimated_length": {words_intro}
+  "introduction": {{
+    "title": "Introduction",
+    "description": "Description of introduction content",
+    "subsections": ["Subsection 1", "Subsection 2", ...],
+    "estimated_length": wordCount
+  }},
+  "main_sections": [
+    {{
+      "title": "Section Title",
+      "description": "Description of section content",
+      "subsections": ["Subsection 1", "Subsection 2", ...],
+      "estimated_length": wordCount
     }},
-    "main_sections": [{main_sections_prompt}
-    ],
-    "conclusion": {{
-        "title": "Conclusion",
-        "description": "Summary and implications",
-        "subsections": ["Summary", "Implications", "Future Directions"],
-        "estimated_length": {words_conclusion}
-    }},
-    "total_estimated_length": {total_length}
-}}
+    ...
+  ],
+  "conclusion": {{
+    "title": "Conclusion",
+    "description": "Description of conclusion content",
+    "subsections": ["Subsection 1", "Subsection 2", ...],
+    "estimated_length": wordCount
+  }},
+  "total_estimated_length": totalWordCount
+}}"""
 
-IMPORTANT: Keep the exact estimated_length values as provided. ONLY output valid JSON, nothing else."""
-
+        try:
             response = self.model_provider.generate_content(
                 prompt,
                 generation_config={
-                    "temperature": 0.4,  # Lower temperature for more predictable output
-                    "max_output_tokens": 1500,
+                    "temperature": 0.7,
+                    "max_output_tokens": min(4000, self.max_output_tokens),
                 }
             )
             
-            # Get the response text and clean it up
-            raw_text = response.text.strip()
+            import json
             
-            # Simple approach - find the opening and closing braces for the full JSON object
-            start = raw_text.find('{')
-            end = raw_text.rfind('}')
+            # Clean and parse the JSON
+            json_text = self._extract_json(response.text)
+            plan_data = json.loads(json_text)
             
-            if start >= 0 and end > start:
-                json_str = raw_text[start:end+1]
-                
-                # Use a safer JSON parsing approach
-                import json
-                try:
-                    plan_data = json.loads(json_str)
-                    
-                    # Validate the plan has the required keys
-                    for key in ["introduction", "main_sections", "conclusion", "total_estimated_length"]:
-                        if key not in plan_data:
-                            raise ValueError(f"Missing key: {key}")
-                    
-                    # Verify section lengths match our requirements
-                    plan_data["introduction"]["estimated_length"] = words_intro
-                    plan_data["conclusion"]["estimated_length"] = words_conclusion
-                    
-                    # Ensure main sections have correct lengths
-                    for i, section in enumerate(plan_data["main_sections"]):
-                        if i < len(main_section_lengths):
-                            section["estimated_length"] = main_section_lengths[i]
-                    
-                    # Update total estimated length
-                    plan_data["total_estimated_length"] = total_length
-                    
-                    # Create a DocumentPlan object
-                    return DocumentPlan.from_dict(plan_data, title)
-                    
-                except json.JSONDecodeError as e:
-                    print(f"JSON parsing error: {e}")
-                    return DocumentPlan.from_dict(fallback_plan, title)
-            else:
-                print("Could not find a valid JSON object in the response")
-                return DocumentPlan.from_dict(fallback_plan, title)
-                
+            # Create the document plan with appropriate parsing
+            from .document_parser import DocumentPlan, Section
+            
+            # Parse introduction
+            intro_data = plan_data["introduction"]
+            introduction = Section(
+                title=intro_data["title"],
+                description=intro_data["description"],
+                subsections=intro_data["subsections"],
+                estimated_length=intro_data["estimated_length"],
+                level=1
+            )
+            
+            # Parse main sections
+            main_sections = []
+            for i, section_data in enumerate(plan_data["main_sections"]):
+                main_sections.append(
+                    Section(
+                        title=section_data["title"],
+                        description=section_data["description"],
+                        subsections=section_data["subsections"],
+                        estimated_length=section_data["estimated_length"],
+                        level=1
+                    )
+                )
+            
+            # Parse conclusion
+            conclusion_data = plan_data["conclusion"]
+            conclusion = Section(
+                title=conclusion_data["title"],
+                description=conclusion_data["description"],
+                subsections=conclusion_data["subsections"],
+                estimated_length=conclusion_data["estimated_length"],
+                level=1
+            )
+            
+            # Get the total estimated length
+            total_length = plan_data.get("total_estimated_length", sum(
+                s.estimated_length for s in [introduction] + main_sections + [conclusion]
+            ))
+            
+            # Create and return the document plan
+            return DocumentPlan(
+                topic=title,
+                introduction=introduction,
+                main_sections=main_sections,
+                conclusion=conclusion,
+                total_estimated_length=total_length
+            )
+            
         except Exception as e:
             print(f"Error creating document plan: {e}")
-            return DocumentPlan.from_dict(fallback_plan, title)
+            # Create a default document plan as fallback
+            return self._create_default_document_plan(title, num_sections, target_length)
+    
+    def _create_default_document_plan(self, title: str, num_sections: int = 5, target_length: int = 4000) -> DocumentPlan:
+        """Create a default document plan when the normal creation fails."""
+        from .document_parser import DocumentPlan, Section
+        
+        # Calculate section lengths
+        intro_length = int(target_length * 0.1)
+        conclusion_length = int(target_length * 0.1)
+        main_section_length = int((target_length - intro_length - conclusion_length) / num_sections)
+        
+        # Create introduction
+        introduction = Section(
+            title="Introduction",
+            description="An introduction to the topic.",
+            subsections=["Background", "Overview", "Scope"],
+            estimated_length=intro_length,
+            level=1
+        )
+        
+        # Create main sections
+        main_sections = []
+        for i in range(num_sections):
+            main_sections.append(
+                Section(
+                    title=f"Section {i+1}",
+                    description=f"Content for section {i+1}.",
+                    subsections=[f"Subsection {i+1}.{j+1}" for j in range(3)],
+                    estimated_length=main_section_length,
+                    level=1
+                )
+            )
+        
+        # Create conclusion
+        conclusion = Section(
+            title="Conclusion",
+            description="A conclusion to the topic.",
+            subsections=["Summary", "Implications", "Future Directions"],
+            estimated_length=conclusion_length,
+            level=1
+        )
+        
+        # Create and return the document plan
+        return DocumentPlan(
+            topic=title,
+            introduction=introduction,
+            main_sections=main_sections,
+            conclusion=conclusion,
+            total_estimated_length=target_length
+        )
+        
+    def _extract_json(self, text: str) -> str:
+        """Extract JSON from a text that might contain other content."""
+        import re
+        
+        # First, try to find JSON between code blocks
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+        if json_match:
+            return json_match.group(1)
+        
+        # If no code blocks, look for text that looks like JSON (starts with { and ends with })
+        json_match = re.search(r'(\{[\s\S]*\})', text)
+        if json_match:
+            return json_match.group(1)
+        
+        # If still no match, return the original text
+        return text
     
     def _create_section_context(
         self,

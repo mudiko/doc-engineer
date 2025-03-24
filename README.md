@@ -1,16 +1,27 @@
 # Doc Engineer
 
-A modular document generation system that leverages AI to create well-structured, coherent documents on any topic.
+A powerful single-shot document generation system that leverages AI to create comprehensive, well-structured documents on any topic within seconds.
+
+## Overview
+
+Doc Engineer streamlines document creation by allowing users to specify their requirements through simple templates and parameters. The system handles the rest, generating complete documents in one go. Simply define what you're looking for, and Doc Engineer produces the result almost instantly.
 
 ## Features
 
+- **Single-Shot Document Generation**: Create complete documents in one go with minimal input
+- **Template-Based Approach**: Choose from prebuilt templates for various document types
 - **AI-Powered Content Generation**: Generates comprehensive, structured documents on any topic
-- **Document-Wide Critique & Improvement**: AI evaluates the entire document for coherence and improves each section
-- **Section-by-Section Evaluation**: AI reviews each section for quality and coherence
-- **Template Support**: Apply different templates for academic papers, business reports, or blog posts
+- **Customizable Document Parameters**: Specify length, structure, and complexity as needed
+- **Document-Wide Coherence**: AI evaluates the entire document for consistency and flow
+- **Chunking Support**: Handles generation of large documents through intelligent chunking
 - **Multiple Output Formats**: Export documents as Markdown, HTML, or plain text
-- **Flexible Document Length**: Specify document length in pages (15 pages, 30 pages, etc.)
-- **Modular Architecture**: Highly extensible system with clean separation of concerns
+- **Modular Architecture**: Highly extensible system for easy customization
+
+## Coming Soon
+
+- **Citation Support**: Automatic citation generation and management
+- **Search Integration**: Find and incorporate relevant information from specified sources
+- **Additional Templates**: More specialized document templates for various use cases
 
 ## Modular Architecture
 
@@ -105,8 +116,8 @@ document = generator.generate_document(
 The modular architecture makes it easy to extend the system:
 
 - Add new model providers by implementing the `ModelProvider` protocol
-- Create custom templates by extending the `TemplateStrategy` class
-- Add new output formats by implementing the `OutputFormatter` interface
+- Create custom templates by extending the `Template` class
+- Add new output formats by implementing additional formatting options
 
 ## License
 
@@ -115,4 +126,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Acknowledgments
 
 - This project uses the Google Gemini API for content generation
-- Built with inspiration from various academic paper generation systems and document engineering concepts
+- Built with a focus on efficiency and usability for rapid document creation
