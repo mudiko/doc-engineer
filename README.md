@@ -29,12 +29,13 @@ Doc Engineer streamlines document creation by allowing users to specify their re
 
 | Milestone | Status | Description |
 |-----------|--------|-------------|
-| ✅ 100-page documents | **COMPLETED** | Generate consistent 100-page documents in a single shot |
+| ✅ 100-page documents | **COMPLETED** | Generate consistent 100-page documents in a single shot with intelligent chunking |
 | ⏳ Concurrent generation | PLANNED | Improve performance with parallel processing of document sections |
 | ⏳ Search integration | PLANNED | Incorporate external knowledge through search capabilities |
 | ⏳ Citation tools | PLANNED | Add automatic citation generation and management |
-| ⏳ Additional output formats | PLANNED | Support for more document output formats (PDF, DOCX, LaTeX) |
+| ⏳ Additional output formats | PLANNED | Support for more document output formats (PDF, DOCX, LaTeX, AsciiDoc, reStructuredText) |
 | ⏳ Template library | PLANNED | Expand the collection of document templates for specific use cases |
+| ⏳ Web frontend | PLANNED | Create a user-friendly web interface for document generation and management |
 
 ## Modular Architecture
 
