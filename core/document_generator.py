@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 from .document_planner import DocumentPlanner, DocumentPlan, Section
 from .content_generator import ContentGenerator, GeneratedSection
 from .search.search_manager import SearchManager, SearchConfig
@@ -62,19 +62,23 @@ class DocumentGenerator:
         )
         sections.append(conclusion)
         
-        # 3. Check consistency
-        print("\nChecking document consistency...")
-        consistency_report = self.content_generator.check_consistency(sections, plan)
-        
-        # 4. Perform overall document evaluation
+        # 3. Perform overall document evaluation to identify section-specific issues
         print("\nPerforming overall document evaluation...")
-        overall_evaluation = self._evaluate_overall_document(sections, plan, topic)
+        section_critiques = self._evaluate_document_sections(sections, plan, topic)
         
-        # 5. Combine all content
+        # 4. Revise each section based on critiques
+        print("\nRevising sections based on evaluation...")
+        revised_sections = self._revise_sections(sections, section_critiques, plan)
+        
+        # 5. Check consistency of revised document
+        print("\nChecking document consistency...")
+        consistency_report = self.content_generator.check_consistency(revised_sections, plan)
+        
+        # 6. Combine all content
         print("\nFinalizing document...")
-        document = self._combine_content(sections, consistency_report, overall_evaluation)
+        document = self._combine_content(revised_sections, consistency_report)
         
-        # 6. Save to file if specified
+        # 7. Save to file if specified
         if output_file:
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(document)
@@ -85,8 +89,7 @@ class DocumentGenerator:
     def _combine_content(
         self,
         sections: List[GeneratedSection],
-        consistency_report: str,
-        overall_evaluation: str
+        consistency_report: str
     ) -> str:
         """Combine all sections into a complete document."""
         # Combine main content
@@ -100,36 +103,26 @@ class DocumentGenerator:
         content += f"# {sections[-1].title}\n\n"
         content += sections[-1].content + "\n\n"
         
-        # Add consistency report
-        content += "# Document Review\n\n"
-        content += consistency_report + "\n\n"
-        
-        # Add overall evaluation
-        content += "# Overall Document Evaluation\n\n"
-        content += overall_evaluation
         
         return content
         
-    def _evaluate_overall_document(
+    def _evaluate_document_sections(
         self,
         sections: List[GeneratedSection],
         document_plan: DocumentPlan,
         topic: str
-    ) -> str:
-        """Evaluate the overall document for consistency, structure, and completeness."""
-        # Create a condensed version of each section to avoid token limits
-        section_summaries = []
-        for section in sections:
-            # Create a summary of each section by taking the first 150 chars and last 150 chars
-            content = section.content
-            summary = f"Section: {section.title}\n"
-            summary += f"Beginning: {content[:150]}...\n"
-            summary += f"End: ...{content[-150:]}\n"
-            section_summaries.append(summary)
+    ) -> Dict[int, str]:
+        """Evaluate the overall document and create specific critiques for each section."""
+        # Create a preview of the entire document (with truncated sections to fit token limits)
+        section_previews = []
+        for i, section in enumerate(sections):
+            # Truncate the content to 200 chars to avoid token limits
+            truncated_content = section.content[:300] + "..." if len(section.content) > 300 else section.content
+            section_previews.append(f"Section {i}: {section.title}\n{truncated_content}\n")
         
-        section_text = "\n\n".join(section_summaries)
+        document_preview = "\n".join(section_previews)
         
-        prompt = f"""Evaluate this academic document about "{topic}" for overall consistency and structure.
+        prompt = f"""Evaluate this academic document about "{topic}" and provide specific improvement critiques for EACH SECTION.
 
 Document Plan:
 - Introduction: {document_plan.introduction.title}
@@ -137,20 +130,26 @@ Document Plan:
 - Conclusion: {document_plan.conclusion.title}
 - Target Length: {document_plan.total_estimated_length} words
 
-Section samples:
-{section_text}
+Document Sections Preview:
+{document_preview}
 
-Evaluate the document on:
-1. Overall narrative flow and coherence
-2. Transitions between sections
-3. Adherence to academic tone and style
-4. Balanced coverage of the topic
-5. Potential gaps or redundancies
-6. Structural organization
-7. Key areas for improvement if specific sections were to be revised
+For EACH SECTION (0, 1, 2, etc.), provide:
+1. Specific issues with coherence, clarity, or style
+2. Content gaps or imbalances
+3. Academic tone inconsistencies
+4. Improvement suggestions for readability
+5. Transition improvement recommendations
 
-Provide specific comments that could guide future revisions of individual sections.
-IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
+Format your response as follows:
+SECTION 0:
+[Critique and improvement suggestions for the introduction]
+
+SECTION 1:
+[Critique and improvement suggestions for main section 1]
+
+... and so on for each section ...
+
+Be specific and actionable with your critiques. Each section's feedback will be used to revise that section.
 """
 
         try:
@@ -164,9 +163,144 @@ IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
             
             # Clean any potential markdown code blocks from the response
             if hasattr(self.content_generator, '_clean_markdown_blocks'):
-                return self.content_generator._clean_markdown_blocks(response.text)
-            return response.text
+                critique_text = self.content_generator._clean_markdown_blocks(response.text)
+            else:
+                critique_text = response.text
+            
+            # Parse the critiques by section
+            section_critiques = {}
+            current_section = None
+            current_critique = []
+            
+            for line in critique_text.split('\n'):
+                if line.startswith('SECTION ') and ':' in line:
+                    # Save the previous section critique if exists
+                    if current_section is not None and current_critique:
+                        section_critiques[current_section] = '\n'.join(current_critique)
+                        current_critique = []
+                    
+                    # Extract section number
+                    try:
+                        section_num = int(line[8:line.find(':')])
+                        current_section = section_num
+                    except ValueError:
+                        continue
+                elif current_section is not None:
+                    current_critique.append(line)
+            
+            # Add the last section critique
+            if current_section is not None and current_critique:
+                section_critiques[current_section] = '\n'.join(current_critique)
+            
+            return section_critiques
             
         except Exception as e:
-            print(f"Error generating overall evaluation: {e}")
-            return "Error occurred while generating the overall document evaluation." 
+            print(f"Error evaluating document sections: {e}")
+            return {}
+    
+    def _revise_sections(
+        self,
+        sections: List[GeneratedSection],
+        section_critiques: Dict[int, str],
+        document_plan: DocumentPlan
+    ) -> List[GeneratedSection]:
+        """Revise each section based on critiques from overall evaluation."""
+        revised_sections = []
+        
+        for i, section in enumerate(sections):
+            if i not in section_critiques:
+                revised_sections.append(section)  # Keep original if no critique
+                continue
+                
+            print(f"Revising section: {section.title}...")
+            critique = section_critiques[i]
+            
+            # Determine which original section from document plan this is
+            if i == 0:
+                original_section = document_plan.introduction
+            elif i == len(sections) - 1:
+                original_section = document_plan.conclusion
+            else:
+                original_section = document_plan.main_sections[i-1]
+            
+            # Create a context with previous sections for coherence
+            previous_context = []
+            if i > 0:
+                for prev_i in range(max(0, i-2), i):
+                    prev_section = sections[prev_i]
+                    # Include a preview of previous sections
+                    preview = prev_section.content[:200] + "..." if len(prev_section.content) > 200 else prev_section.content
+                    previous_context.append(f"{prev_section.title}:\n{preview}")
+            
+            # Generate revised content
+            revised_section = self._generate_revised_section(
+                section, 
+                critique, 
+                original_section,
+                previous_context
+            )
+            
+            revised_sections.append(revised_section)
+            
+        return revised_sections
+    
+    def _generate_revised_section(
+        self,
+        original_section: GeneratedSection,
+        critique: str,
+        plan_section: Section,
+        previous_context: List[str]
+    ) -> GeneratedSection:
+        """Generate revised content for a section based on critique and original content."""
+        context = "\n".join(previous_context) if previous_context else "None"
+        
+        prompt = f"""Revise the following section of an academic article based on critique feedback:
+
+Section Title: {original_section.title}
+Original Content: 
+{original_section.content}
+
+Critique and Improvements Needed:
+{critique}
+
+Previous Sections Context:
+{context}
+
+Section Plan:
+- Description: {plan_section.description}
+- Subsections: {', '.join(plan_section.subsections)}
+- Estimated Length: {plan_section.estimated_length} words
+
+Requirements:
+1. Address ALL issues mentioned in the critique
+2. Improve readability and academic tone
+3. Ensure smooth transitions with previous sections
+4. Maintain the original intent and structure
+5. Stay within the approximate target length
+
+Format the revised content in Markdown with proper paragraphs.
+DO NOT include the title in your response.
+IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
+"""
+
+        try:
+            response = self.content_generator.model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.5,
+                    "max_output_tokens": 4000,
+                }
+            )
+            
+            # Clean any potential markdown code blocks from the response
+            revised_content = self.content_generator._clean_markdown_blocks(response.text) if hasattr(self.content_generator, '_clean_markdown_blocks') else response.text
+            
+            return GeneratedSection(
+                title=original_section.title,
+                content=revised_content,
+                subsections=original_section.subsections
+            )
+            
+        except Exception as e:
+            print(f"Error revising section {original_section.title}: {e}")
+            return original_section  # Return original if revision fails 
