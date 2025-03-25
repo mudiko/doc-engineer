@@ -14,8 +14,13 @@ fi
 
 echo "🔍 Running linters on Doc Engineer..."
 
+# Ensure the lock file is up to date
+echo "Updating lock file..."
+poetry lock
+
 # Make sure we have the lint tools installed
-poetry add --group dev flake8 black mypy
+echo "Installing linting tools..."
+poetry add --group dev flake8 black mypy || poetry add -D flake8 black mypy
 
 # Run flake8
 echo "Running flake8..."

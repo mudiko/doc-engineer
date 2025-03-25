@@ -24,6 +24,10 @@ if ! command_exists poetry; then
   fi
 fi
 
+# Generate lock file
+echo "Generating lock file..."
+poetry lock
+
 # Install dependencies with Poetry
 echo "Installing dependencies..."
 poetry install

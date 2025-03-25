@@ -14,6 +14,14 @@ fi
 
 echo "🧪 Running Doc Engineer tests..."
 
+# Ensure the lock file is up to date
+echo "Updating lock file..."
+poetry lock
+
+# Install test dependencies
+echo "Installing test dependencies..."
+poetry add --group dev pytest pytest-cov || poetry add -D pytest pytest-cov
+
 # Run the tests with coverage
 poetry run pytest -xvs --cov=. --cov-report=term-missing
 
