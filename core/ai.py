@@ -117,4 +117,4 @@ Requirements:
 
     def _format_sources(self, source_texts: List[str]) -> str:
         """Format source texts for prompt creation."""
-        return "\n\n".join(f"Source {i+1}:\n{text}" for i, text in enumerate(source_texts))
+        return "\n\n".join(f"Source {i + 1}:\n{text}" for i, text in enumerate(source_texts))

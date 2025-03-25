@@ -4,12 +4,11 @@ Document Generator
 This module provides the core document generation functionality.
 """
 
-import os
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Optional, List, Tuple
 
-from .modules.content_generator import ContentGenerator, GeminiProvider, ModelProvider
-from .modules.document_parser import Section, DocumentPlan, GeneratedSection, DocumentParser
-from .modules.templates import get_template, Template
+from core.modules.content_generator import ContentGenerator, GeminiProvider, ModelProvider
+from core.modules.document_parser import Section, DocumentPlan, GeneratedSection
+from core.modules.templates import get_template
 
 
 class DocumentGenerator:
@@ -36,7 +35,7 @@ class DocumentGenerator:
             self.model_provider = GeminiProvider(api_key=api_key, model_name=model_name)
 
         self.content_generator = ContentGenerator(self.model_provider)
-        print(f"Document generator initialized successfully")
+        print("Document generator initialized successfully")
 
     def generate_document(
         self,
@@ -73,12 +72,12 @@ class DocumentGenerator:
         # Display estimated length information if target length was specified
         if target_length_words:
             print(
-                f"Target length: {target_length_words} words (≈{target_length_words/500:.1f} pages)"
+                f"Target length: {target_length_words} words (≈{target_length_words / 500:.1f} pages)"
             )
             print(f"Planned length: {document_plan.total_estimated_length} words")
 
             # Show section breakdown
-            print(f"Section breakdown:")
+            print("Section breakdown:")
             print(f"  - Introduction: {document_plan.introduction.estimated_length} words")
             for i, section in enumerate(document_plan.main_sections):
                 print(f"  - {section.title}: {section.estimated_length} words")
@@ -90,10 +89,10 @@ class DocumentGenerator:
 
         # Step 3: Generate content for each section
         print("[3/5] Generating content...")
-        generated_sections = []
+        generated_sections: List[GeneratedSection] = []
 
-        for i, section in enumerate(document_plan.sections):
-            print(f"  • {i+1}/{len(document_plan.sections)}: {section.title}")
+        for i, section in enumerate(document_plan.sections):  # section is a Section
+            print(f"  • {i + 1}/{len(document_plan.sections)}: {section.title}")
 
             # Generate content for this section
             gen_section = self.content_generator.generate_section_content(
@@ -106,9 +105,10 @@ class DocumentGenerator:
         print("[4/5] Evaluating document coherence and quality...")
 
         # First check for consistency issues between sections
-        consistency_issues = []
-        for i, section in enumerate(generated_sections[1:], 1):
+        consistency_issues: List[Tuple[str, str]] = []
+        for i, section in enumerate(generated_sections[1:], 1):  # section is a GeneratedSection
             previous_sections = generated_sections[:i]
+            # Pass the content and title separately as required by the method
             consistency_report = self.content_generator.check_consistency(
                 section.content, section.title, previous_sections
             )
@@ -132,9 +132,9 @@ class DocumentGenerator:
 
         # Only revise if we have meaningful critiques
         if section_critiques or consistency_issues:
-            improved_sections = []
+            improved_sections: List[GeneratedSection] = []
 
-            for i, section in enumerate(generated_sections):
+            for i, section in enumerate(generated_sections):  # section is a GeneratedSection
                 section_critique = section_critiques.get(i, "")
 
                 # Add any relevant consistency issues to the critique
@@ -186,9 +186,8 @@ class DocumentGenerator:
                 f.write(formatted_document)
             print(f"Document saved to {output_path}")
 
-        print(
-            f"Generated {len(generated_sections)} sections with ~{sum(len(s.content.split()) for s in generated_sections)} words"
-        )
+        word_count = sum(len(s.content.split()) for s in generated_sections)
+        print(f"Generated {len(generated_sections)} sections with ~{word_count} words")
         print("=== Done ===")
 
         return formatted_document

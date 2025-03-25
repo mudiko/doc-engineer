@@ -321,7 +321,7 @@ Do NOT wrap your response in ```markdown or any other code block format."""
             chunks_plan = self._plan_chunks_by_subsections(section.subsections, num_chunks)
         else:
             # Create generic chunk descriptions
-            chunks_plan = [f"Part {i+1} of {num_chunks}" for i in range(num_chunks)]
+            chunks_plan = [f"Part {i + 1} of {num_chunks}" for i in range(num_chunks)]
 
         all_content = []
         previous_chunk_content = ""
@@ -354,7 +354,7 @@ Do NOT wrap your response in ```markdown or any other code block format."""
                 max_output_tokens=min(
                     self._words_to_tokens(chunk_word_count * 1.2), self.max_output_tokens
                 ),
-                purpose=f"generating chunk {i+1}/{num_chunks} for section '{section.title}'",
+                purpose=f"generating chunk {i + 1}/{num_chunks} for section '{section.title}'",
             )
 
             chunk_content = self._clean_markdown_blocks(chunk_content)
@@ -409,7 +409,7 @@ Do NOT wrap your response in ```markdown or any other code block format."""
             # Last chunk
             prompt = f"""Write the final part of the section "{section.title}" for an academic article about "{title}":
 
-This is part {chunk_index+1} of {total_chunks} for this section.
+This is part {chunk_index + 1} of {total_chunks} for this section.
 
 Previous part ended with:
 {previous_chunk_content}
@@ -429,7 +429,7 @@ Do NOT wrap your response in ```markdown or any other code block format."""
             # Middle chunk
             prompt = f"""Write the middle part of the section "{section.title}" for an academic article about "{title}":
 
-This is part {chunk_index+1} of {total_chunks} for this section.
+This is part {chunk_index + 1} of {total_chunks} for this section.
 
 Previous part ended with:
 {previous_chunk_content}
@@ -549,10 +549,10 @@ Create a concise summary (150-200 words) that captures:
                     summary_prompt,
                     temperature=0.3,
                     max_output_tokens=1000,
-                    purpose=f"summary for sections {i+1}-{i+len(group)}",
+                    purpose=f"summary for sections {i + 1}-{i + len(group)}",
                 )
 
-                section_summaries.append(f"Sections {i+1}-{i+len(group)}:\n{summary_text}")
+                section_summaries.append(f"Sections {i + 1}-{i + len(group)}:\n{summary_text}")
         else:
             # Process each section individually if there aren't too many
             for i, section in enumerate(previous_sections):
@@ -755,7 +755,7 @@ Focus on constructive feedback that will help improve the quality of the documen
             for i, section in enumerate(chunk_sections)
         )
 
-        prompt = f"""Evaluate this chunk ({chunk_index+1} of {total_chunks}) of an academic document about "{title}" and provide a critique for each section:
+        prompt = f"""Evaluate this chunk ({chunk_index + 1} of {total_chunks}) of an academic document about "{title}" and provide a critique for each section:
 
 {sections_text}
 
@@ -785,7 +785,7 @@ IMPORTANT: Use the SECTION numbers as given in this prompt (starting from 0 for 
             max_output_tokens=min(
                 self._words_to_tokens(approximate_word_count * 0.5), self.max_output_tokens
             ),
-            purpose=f"evaluating document chunk {chunk_index+1}/{total_chunks}",
+            purpose=f"evaluating document chunk {chunk_index + 1}/{total_chunks}",
         )
 
         # Parse the critique response into a dictionary
@@ -941,7 +941,7 @@ DO NOT include "Revised Section: {original_section.title}" or any similar headin
             )
 
             # Build the prompt
-            chunk_prompt = f"""Revise the following part ({i+1}/{num_chunks}) of section "{original_section.title}" based on the critique provided.
+            chunk_prompt = f"""Revise the following part ({i + 1}/{num_chunks}) of section "{original_section.title}" based on the critique provided.
 
 Original Section Part:
 {chunk}
@@ -967,7 +967,7 @@ Do NOT wrap your response in any headings or formats - start directly with the c
                 chunk_prompt,
                 temperature=0.7,
                 max_output_tokens=self.max_output_tokens,
-                purpose=f"revising chunk {i+1}/{num_chunks} for '{original_section.title}'",
+                purpose=f"revising chunk {i + 1}/{num_chunks} for '{original_section.title}'",
             )
 
             revised_chunk = self._clean_markdown_blocks(revised_chunk)
@@ -1128,9 +1128,9 @@ Provide your response as a JSON object with this structure:
         for i in range(num_sections):
             main_sections.append(
                 Section(
-                    title=f"Section {i+1}",
-                    description=f"Content for section {i+1}.",
-                    subsections=[f"Subsection {i+1}.{j+1}" for j in range(3)],
+                    title=f"Section {i + 1}",
+                    description=f"Content for section {i + 1}.",
+                    subsections=[f"Subsection {i + 1}.{j + 1}" for j in range(3)],
                     estimated_length=main_section_length,
                     level=1,
                 )
