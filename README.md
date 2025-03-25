@@ -1,5 +1,8 @@
 # Doc Engineer
 
+[![Tests](https://github.com/yourusername/doc-engineer/actions/workflows/tests.yml/badge.svg)](https://github.com/yourusername/doc-engineer/actions/workflows/tests.yml)
+[![Lint](https://github.com/yourusername/doc-engineer/actions/workflows/lint.yml/badge.svg)](https://github.com/yourusername/doc-engineer/actions/workflows/lint.yml)
+
 A powerful single-shot document generation system that leverages AI to create comprehensive, well-structured documents on any topic within seconds.
 
 ## Overview
@@ -56,7 +59,19 @@ This architecture allows for easy extension and customization of each component.
    cd doc-engineer
    ```
 
-2. Create a virtual environment and install dependencies:
+2. Install with Poetry (recommended):
+   ```bash
+   # Install Poetry if you don't have it
+   # curl -sSL https://install.python-poetry.org | python3 -
+   
+   # Install dependencies
+   poetry install
+   
+   # Activate the virtual environment
+   poetry shell
+   ```
+
+   Alternatively, use pip with a virtual environment:
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
@@ -71,38 +86,93 @@ This architecture allows for easy extension and customization of each component.
 
 ## Usage
 
-### Basic Usage
+### Command Line Interface
 
-Generate a document with default settings:
+Generate a document using the CLI:
 
 ```bash
-python example.py
+# If using Poetry
+poetry run doc-engineer "The Future of Quantum Computing"
+
+# Or directly if in Poetry shell or other environment
+./doc_engineer.py "The Future of Quantum Computing"
 ```
 
-### Advanced Usage
-
-Customize your document generation:
+Or with custom parameters:
 
 ```bash
-python example.py --title "The Future of Quantum Computing" --sections 6 --template academic --format markdown --output quantum_paper.md
-```
-
-Generate a longer document with a specific page length:
-
-```bash
-python example.py --title "Comprehensive Guide to Machine Learning" --pages 15 --template report --format markdown --output ml_guide.md
+./doc_engineer.py "Comprehensive Guide to Machine Learning" --sections 6 --pages 15 --template report --output ml_guide.md
 ```
 
 ### Command Line Options
 
-- `--title`: Document title (default: "The Impact of Artificial Intelligence on Healthcare")
+- `title`: Document title (positional argument)
 - `--sections`: Number of main sections to generate (default: 5)
-- `--pages`: Approximate length in pages (1 page ≈ 500 words)
+- `--pages`: Approximate length in pages (1 page ≈ 500 words) (default: 5)
 - `--template`: Template to use for document formatting (choices: academic, report, blog; default: academic)
 - `--format`: Output format (choices: markdown, html, text; default: markdown)
 - `--output`: Output file path (default: generated_document.md)
 - `--mock`: Use mock provider for testing without API key
 - `--api-key`: Directly provide Google API key (overrides environment variable)
+
+## Development
+
+### Running Tests
+
+Run the tests using the provided script:
+
+```bash
+./run_tests.sh
+```
+
+Or manually with Poetry:
+
+```bash
+poetry run pytest -xvs
+```
+
+To run tests with coverage reporting:
+
+```bash
+poetry run pytest -xvs --cov=. --cov-report=term-missing
+```
+
+### Linting and Code Quality
+
+Run linters to check code quality:
+
+```bash
+./run_lint.sh
+```
+
+This will run:
+- **flake8**: For basic code quality checks
+- **black**: To verify code formatting
+- **mypy**: For static type checking
+
+### Continuous Integration
+
+This project uses GitHub Actions for continuous integration, with two main workflows:
+
+1. **Tests**: Runs the test suite on multiple Python versions
+2. **Lint**: Performs code quality checks
+
+These workflows run automatically on push to main branches and on pull requests.
+
+### Directory Structure
+
+```
+doc-engineer/
+├── core/               # Core functionality
+├── tests/              # Test suite
+├── .github/            # GitHub Actions workflows
+├── doc_engineer.py     # CLI interface
+├── pyproject.toml      # Poetry configuration
+├── requirements.txt    # Pip requirements (for non-Poetry users)
+├── setup.sh            # Setup script
+├── run_tests.sh        # Test runner script
+└── run_lint.sh         # Linting script
+```
 
 ## Using the API
 
