@@ -9,19 +9,10 @@ This package contains modular components for document generation:
 """
 
 # Document Parser Module
-from .document_parser import (
-    Section,
-    DocumentPlan,
-    GeneratedSection,
-    DocumentParser
-)
+from .document_parser import Section, DocumentPlan, GeneratedSection, DocumentParser
 
 # Content Generator Module
-from .content_generator import (
-    ModelProvider,
-    GeminiProvider,
-    ContentGenerator
-)
+from .content_generator import ModelProvider, GeminiProvider, ContentGenerator
 
 # Template Handler Module
 from .template_handler import (
@@ -30,7 +21,7 @@ from .template_handler import (
     TemplateStrategy,
     AcademicTemplateStrategy,
     ReportTemplateStrategy,
-    TemplateFactory
+    TemplateFactory,
 )
 
 # Output Formatter Module
@@ -40,21 +31,31 @@ from .output_formatter import (
     HTMLFormatter,
     TextFormatter,
     FormatterFactory,
-    DocumentReviewFormatter
+    DocumentReviewFormatter,
 )
 
 __all__ = [
     # Document Parser
-    'Section', 'DocumentPlan', 'GeneratedSection', 'DocumentParser',
-    
+    "Section",
+    "DocumentPlan",
+    "GeneratedSection",
+    "DocumentParser",
     # Content Generator
-    'ModelProvider', 'GeminiProvider', 'ContentGenerator',
-    
+    "ModelProvider",
+    "GeminiProvider",
+    "ContentGenerator",
     # Template Handler
-    'Template', 'TemplateHandler', 'TemplateStrategy',
-    'AcademicTemplateStrategy', 'ReportTemplateStrategy', 'TemplateFactory',
-    
+    "Template",
+    "TemplateHandler",
+    "TemplateStrategy",
+    "AcademicTemplateStrategy",
+    "ReportTemplateStrategy",
+    "TemplateFactory",
     # Output Formatter
-    'OutputFormatter', 'MarkdownFormatter', 'HTMLFormatter', 'TextFormatter',
-    'FormatterFactory', 'DocumentReviewFormatter'
-] 
+    "OutputFormatter",
+    "MarkdownFormatter",
+    "HTMLFormatter",
+    "TextFormatter",
+    "FormatterFactory",
+    "DocumentReviewFormatter",
+]
