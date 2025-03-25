@@ -24,16 +24,18 @@ poetry add --group dev flake8 black mypy || poetry add -D flake8 black mypy
 
 # Run flake8
 echo "Running flake8..."
-poetry run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-poetry run flake8 . --count --max-complexity=10 --max-line-length=120 --statistics
+# Only lint our own code, exclude dependencies and virtual environment
+poetry run flake8 core doc_engineer.py tests --count --select=E9,F63,F7,F82 --show-source --statistics
+poetry run flake8 core doc_engineer.py tests --count --max-complexity=10 --max-line-length=120 --statistics
 
 # Run black
 echo "Running black..."
-poetry run black --check .
+# Only check formatting on our own code
+poetry run black --check core doc_engineer.py tests
 
 # Run mypy
 echo "Running mypy..."
-poetry run mypy --ignore-missing-imports .
+poetry run mypy --ignore-missing-imports core doc_engineer.py
 
 echo "✅ Lint completed!"
 
@@ -41,6 +43,6 @@ echo "✅ Lint completed!"
 read -p "Would you like to automatically fix formatting issues with black? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-  poetry run black .
+  poetry run black core doc_engineer.py tests
   echo "Formatting issues fixed."
 fi 

@@ -39,13 +39,15 @@ jobs:
 
     - name: Lint with flake8
       run: |
-        poetry run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        poetry run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+        # Only lint our own code, exclude dependencies and virtual environment
+        poetry run flake8 core doc_engineer.py tests --count --select=E9,F63,F7,F82 --show-source --statistics
+        poetry run flake8 core doc_engineer.py tests --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
 
     - name: Check formatting with black
       run: |
-        poetry run black --check .
+        # Only check formatting on our own code
+        poetry run black --check core doc_engineer.py tests
 
     - name: Type check with mypy
       run: |
-        poetry run mypy --ignore-missing-imports . 
+        poetry run mypy --ignore-missing-imports core doc_engineer.py 

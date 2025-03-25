@@ -1,0 +1,15 @@
+[flake8]
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    .env,
+    .eggs,
+    *.egg,
+    build,
+    dist,
+    .tox
+max-line-length = 120
+ignore = E203, W503
+max-complexity = 10 
