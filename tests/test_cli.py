@@ -46,7 +46,7 @@ class TestCLI:
     @patch.dict(os.environ, {"GOOGLE_API_KEY": "fake-api-key"})
     def test_get_model_provider_with_env_var(self):
         """Test getting the provider using environment variable."""
-        with patch('doc_engineer.GeminiProvider') as mock_provider:
+        with patch('core.modules.content_generator.GeminiProvider') as mock_provider:
             mock_instance = MagicMock()
             mock_provider.return_value = mock_instance
             
@@ -58,7 +58,7 @@ class TestCLI:
     
     def test_get_model_provider_with_direct_key(self):
         """Test getting the provider using a directly provided key."""
-        with patch('doc_engineer.GeminiProvider') as mock_provider:
+        with patch('core.modules.content_generator.GeminiProvider') as mock_provider:
             mock_instance = MagicMock()
             mock_provider.return_value = mock_instance
             
@@ -73,8 +73,9 @@ class TestCLI:
         # Temporarily unset GOOGLE_API_KEY if it exists
         old_key = os.environ.pop('GOOGLE_API_KEY', None)
         try:
-            # Mock dotenv.load_dotenv to do nothing
-            with patch('doc_engineer.load_dotenv'):
+            # Mock dotenv module
+            with patch('dotenv.load_dotenv', MagicMock()), \
+                 patch('os.getenv', return_value=None):  # Ensure getenv returns None
                 provider = doc_engineer.get_model_provider(False)
                 assert provider is None
         finally:

@@ -76,7 +76,7 @@ class TestContentGenerator:
         )
         
         # Check if plan was created properly
-        assert document_plan.title == "Test Document"
+        assert document_plan.topic == "Test Document"
         assert len(document_plan.sections) > 0
         assert document_plan.total_estimated_length > 0
     

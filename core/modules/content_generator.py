@@ -891,6 +891,12 @@ DO NOT include "Revised Section: {original_section.title}" or any similar headin
             is_first_chunk = i == 0
             is_last_chunk = i == len(content_chunks) - 1
             
+            # Prepare instructions based on chunk position
+            start_instruction = "Start the section appropriately" if is_first_chunk else "Ensure smooth continuation from previous part"
+            end_instruction = "Provide a proper conclusion to the section" if is_last_chunk else "Don't try to conclude the section yet"
+            context_instruction = f"Previous context (for consistency):\n{context_text}" if is_first_chunk and context_text else ""
+            
+            # Build the prompt
             chunk_prompt = f"""Revise the following part ({i+1}/{num_chunks}) of section "{original_section.title}" based on the critique provided.
 
 Original Section Part:
@@ -904,13 +910,13 @@ Requirements:
 2. Maintain or improve the part length
 3. Ensure academic tone and language
 4. Improve clarity and precision
-5. {'Start the section appropriately' if is_first_chunk else 'Ensure smooth continuation from previous part'}
-6. {'Provide a proper conclusion to the section' if is_last_chunk else 'Don\'t try to conclude the section yet'}
+5. {start_instruction}
+6. {end_instruction}
 
-{'Previous context (for consistency):\n' + context_text if is_first_chunk and context_text else ''}
+{context_instruction}
 
 Provide the revised content for this part only.
-IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
+IMPORTANT: Do NOT include any code blocks or fenced code sections.
 Do NOT wrap your response in any headings or formats - start directly with the content."""
 
             revised_chunk = self._safely_generate_content(
