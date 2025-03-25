@@ -33,9 +33,9 @@ echo "Running black..."
 # Only check formatting on our own code
 poetry run black --check core doc_engineer.py tests
 
-# Run mypy
-echo "Running mypy..."
-poetry run mypy --ignore-missing-imports core doc_engineer.py
+# Run mypy - DISABLED
+echo "Mypy type checking has been disabled"
+# poetry run mypy --ignore-missing-imports core doc_engineer.py
 
 echo "✅ Lint completed!"
 

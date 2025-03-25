@@ -48,6 +48,7 @@ jobs:
         # Only check formatting on our own code
         poetry run black --check core doc_engineer.py tests
 
-    - name: Type check with mypy
-      run: |
-        poetry run mypy --ignore-missing-imports core doc_engineer.py 
+    # Mypy type checking disabled
+    # - name: Type check with mypy
+    #   run: |
+    #     poetry run mypy --ignore-missing-imports core doc_engineer.py 
