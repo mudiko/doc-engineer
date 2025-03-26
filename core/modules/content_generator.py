@@ -63,9 +63,7 @@ class GeminiProvider:
         """Count tokens in the prompt."""
         try:
             if self._use_new_api:
-                result = self.client.models.count_tokens(
-                    model=self.model_name, contents=prompt
-                )
+                result = self.client.models.count_tokens(model=self.model_name, contents=prompt)
                 return result.total_tokens
             else:
                 # For legacy API, use approximate counting (5 tokens per word)
@@ -79,7 +77,7 @@ class GeminiProvider:
         """Generate content using the Gemini model."""
         max_retries = 3
         retry_count = 0
-        
+
         # Count input tokens
         input_token_count = self.count_tokens(prompt)
         self.input_tokens += input_token_count
@@ -93,14 +91,14 @@ class GeminiProvider:
                     response = self.client.models.generate_content(
                         model=self.model_name, contents=prompt, generation_config=generation_config
                     )
-                    
+
                     # Count output tokens if available in the response
                     if hasattr(response, "usage") and hasattr(response.usage, "output_tokens"):
                         self.output_tokens += response.usage.output_tokens
                     elif response.text:
                         # Estimate if not available
                         self.output_tokens += self.count_tokens(response.text)
-                        
+
                     # Create a wrapper to maintain compatibility with the existing code
                     # Check if response has text before accessing it
                     if hasattr(response, "text"):
@@ -121,7 +119,7 @@ class GeminiProvider:
                     response = self.model.generate_content(
                         prompt, generation_config=generation_config
                     )
-                    
+
                     # Estimate token count for output
                     if hasattr(response, "text"):
                         self.output_tokens += self.count_tokens(response.text)
@@ -203,7 +201,7 @@ class MockProvider:
         self.input_tokens = 0
         self.output_tokens = 0
         self.total_api_calls = 0
-        
+
         self.responses = {
             "document_plan": """
             {
@@ -264,10 +262,10 @@ class MockProvider:
         """Generate content using pre-defined mock responses."""
         # Increment API call counter
         self.total_api_calls += 1
-        
+
         # Simple token counting for mock content (just for stats)
         self.input_tokens += len(prompt.split()) * 5  # Rough estimate: 5 tokens per word
-        
+
         # Determine which type of response to return based on prompt content
         if "Create a document outline" in prompt:
             response = self.responses["document_plan"]
@@ -281,7 +279,7 @@ class MockProvider:
             response = self.responses["revised_section"]
         else:
             response = "This is a mock response."
-            
+
         # Track output tokens
         self.output_tokens += len(response.split()) * 5  # Rough estimate: 5 tokens per word
 
@@ -694,13 +692,7 @@ If there are issues, describe them clearly and concisely, focusing on the most i
         self, title: str, sections: List[GeneratedSection]
     ) -> Dict[int, str]:
         """Evaluate and critique document sections."""
-        # If document is too large, evaluate in chunks
-        total_content_length = sum(len(section.content) for section in sections)
-        approximate_word_count = total_content_length / 5  # Approximate 5 chars per word
-
-        if approximate_word_count > self._tokens_to_words(self.max_output_tokens * 0.8):
-            return self._evaluate_document_sections_chunked(title, sections)
-
+        # Format all sections for critique
         sections_text = "\n\n".join(
             f"SECTION {i}: {section.title}\n{section.content}" for i, section in enumerate(sections)
         )
@@ -730,113 +722,8 @@ Focus on constructive feedback that will help improve the quality of the documen
         response_text = self._safely_generate_content(
             prompt,
             temperature=0.3,
-            max_output_tokens=min(
-                self._words_to_tokens(approximate_word_count * 0.5), self.max_output_tokens
-            ),
+            max_output_tokens=8000,  # Use a large output token limit
             purpose="document evaluation",
-        )
-
-        # Parse the critique response into a dictionary
-        critiques = {}
-        current_section = None
-        current_critique = []
-
-        for line in response_text.split("\n"):
-            if line.startswith("SECTION "):
-                # Save previous section if exists
-                if current_section is not None and current_critique:
-                    critiques[current_section] = "\n".join(current_critique)
-                    current_critique = []
-
-                # Extract section number
-                try:
-                    section_text = line.split(":")[0].strip()
-                    current_section = int(section_text.replace("SECTION ", ""))
-                except (ValueError, IndexError):
-                    print(f"Warning: Couldn't parse section number from line: {line}")
-                    current_section = None
-            elif current_section is not None:
-                current_critique.append(line)
-
-        # Add the last section
-        if current_section is not None and current_critique:
-            critiques[current_section] = "\n".join(current_critique)
-
-        return critiques
-
-    def _evaluate_document_sections_chunked(
-        self, title: str, sections: List[GeneratedSection]
-    ) -> Dict[int, str]:
-        """Evaluate document sections in chunks when the document is too large."""
-        critiques = {}
-
-        # Determine a reasonable chunk size (max 3-4 sections per chunk)
-        max_sections_per_chunk = 3
-        section_chunks = []
-
-        for i in range(0, len(sections), max_sections_per_chunk):
-            section_chunks.append(sections[i : i + max_sections_per_chunk])
-
-        print(f"Evaluating document in {len(section_chunks)} chunks")
-
-        for chunk_index, chunk_sections in enumerate(section_chunks):
-            chunk_critiques = self._evaluate_section_chunk(
-                title, chunk_sections, chunk_index, len(section_chunks)
-            )
-
-            # Calculate the correct section indices
-            base_index = chunk_index * max_sections_per_chunk
-            for relative_idx, critique in chunk_critiques.items():
-                absolute_idx = base_index + relative_idx
-                if absolute_idx < len(sections):
-                    critiques[absolute_idx] = critique
-
-        return critiques
-
-    def _evaluate_section_chunk(
-        self,
-        title: str,
-        chunk_sections: List[GeneratedSection],
-        chunk_index: int,
-        total_chunks: int,
-    ) -> Dict[int, str]:
-        """Evaluate a chunk of sections."""
-        sections_text = "\n\n".join(
-            f"SECTION {i}: {section.title}\n{section.content}"
-            for i, section in enumerate(chunk_sections)
-        )
-
-        prompt = f"""Evaluate this chunk ({chunk_index + 1} of {total_chunks}) of an academic document about "{title}" and provide a critique for each section:
-
-{sections_text}
-
-For EACH numbered section, provide a critique that addresses:
-1. Content quality and depth
-2. Organization and structure
-3. Academic tone and language
-4. Clarity and precision
-5. Specific suggestions for improvement
-
-Format your response with section numbers:
-SECTION 0:
-[Your critique of section 0]
-
-SECTION 1:
-[Your critique of section 1]
-
-And so on for each section.
-
-Focus on constructive feedback that will help improve the quality of the document.
-IMPORTANT: Use the SECTION numbers as given in this prompt (starting from 0 for the first section in this chunk)."""
-
-        approximate_word_count = sum(len(section.content) for section in chunk_sections) / 5
-        response_text = self._safely_generate_content(
-            prompt,
-            temperature=0.3,
-            max_output_tokens=min(
-                self._words_to_tokens(approximate_word_count * 0.5), self.max_output_tokens
-            ),
-            purpose=f"evaluating document chunk {chunk_index + 1}/{total_chunks}",
         )
 
         # Parse the critique response into a dictionary

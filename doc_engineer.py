@@ -21,7 +21,11 @@ def setup_parser() -> argparse.ArgumentParser:
 
     # Required arguments
     parser.add_argument(
-        "title", type=str, nargs="?", default="Advancements of AI", help="Title of the document to generate"
+        "title",
+        type=str,
+        nargs="?",
+        default="Advancements of AI",
+        help="Title of the document to generate",
     )
 
     # Optional arguments
@@ -55,7 +59,7 @@ def setup_parser() -> argparse.ArgumentParser:
         "--mock", action="store_true", help="Use mock provider instead of Gemini API"
     )
     parser.add_argument(
-        "--show-tokens", action="store_true", help="Show detailed token usage statistics"
+        "--hide-tokens", action="store_true", help="Hide detailed token usage statistics"
     )
 
     return parser
@@ -106,6 +110,10 @@ def main():
     parser = setup_parser()
     args = parser.parse_args()
 
+    # Prompt for title if not provided
+    if args.title is None:
+        args.title = input("Enter document title: ")
+
     # Get model provider
     model_provider = get_model_provider(args.mock, args.api_key)
     if not model_provider:
@@ -130,7 +138,7 @@ def main():
             output_format=args.format,
             output_path=args.output,
             target_length_words=total_words,
-            show_tokens=args.show_tokens,
+            show_tokens=not args.hide_tokens,
         )
 
         print(f"\nDocument successfully generated!")

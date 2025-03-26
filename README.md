@@ -114,6 +114,7 @@ Or with custom parameters:
 - `--output`: Output file path (default: generated_document.md)
 - `--mock`: Use mock provider for testing without API key
 - `--api-key`: Directly provide Google API key (overrides environment variable)
+- `--hide-tokens`: Hide detailed token usage statistics (tokens are shown by default)
 
 ## Development
 
