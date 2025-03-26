@@ -21,7 +21,7 @@ def setup_parser() -> argparse.ArgumentParser:
 
     # Required arguments
     parser.add_argument(
-        "title", type=str, nargs="?", default=None, help="Title of the document to generate"
+        "title", type=str, nargs="?", default="Advancements of AI", help="Title of the document to generate"
     )
 
     # Optional arguments
@@ -54,6 +54,9 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mock", action="store_true", help="Use mock provider instead of Gemini API"
     )
+    parser.add_argument(
+        "--show-tokens", action="store_true", help="Show detailed token usage statistics"
+    )
 
     return parser
 
@@ -84,7 +87,7 @@ def get_model_provider(use_mock: bool, api_key: Optional[str] = None):
         from core.modules.content_generator import GeminiProvider
 
         print(f"Initializing Gemini provider with API key: {api_key[:5]}...")
-        return GeminiProvider(api_key=api_key, model_name="gemini-2.0-flash-thinking-exp-01-21")
+        return GeminiProvider(api_key=api_key, model_name="gemini-2.0-flash-001")
     except ImportError:
         print("Error: Google Generative AI package not found.")
         print("Please install it with: poetry add google-generativeai")
@@ -102,10 +105,6 @@ def main():
     # Parse command line arguments
     parser = setup_parser()
     args = parser.parse_args()
-
-    # Prompt for title if not provided
-    if not args.title:
-        args.title = input("Enter document title: ")
 
     # Get model provider
     model_provider = get_model_provider(args.mock, args.api_key)
@@ -131,6 +130,7 @@ def main():
             output_format=args.format,
             output_path=args.output,
             target_length_words=total_words,
+            show_tokens=args.show_tokens,
         )
 
         print(f"\nDocument successfully generated!")

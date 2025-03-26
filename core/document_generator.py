@@ -45,6 +45,7 @@ class DocumentGenerator:
         output_format: str = "markdown",
         output_path: Optional[str] = None,
         target_length_words: Optional[int] = None,
+        show_tokens: bool = False,
     ) -> str:
         """
         Generate a complete document based on the given title.
@@ -56,6 +57,7 @@ class DocumentGenerator:
             output_format (str): Format to output the document in (default: "markdown")
             output_path (Optional[str]): Path to save the document (default: None)
             target_length_words (Optional[int]): Target document length in words (default: None)
+            show_tokens (bool): Whether to show token usage information (default: False)
 
         Returns:
             str: The generated document content
@@ -188,6 +190,30 @@ class DocumentGenerator:
 
         word_count = sum(len(s.content.split()) for s in generated_sections)
         print(f"Generated {len(generated_sections)} sections with ~{word_count} words")
+        
+        # Display token usage information if available and requested
+        if show_tokens and hasattr(self.model_provider, 'input_tokens') and hasattr(self.model_provider, 'output_tokens'):
+            # Calculate approximate cost (using current Gemini Pro pricing)
+            # Gemini Pro pricing: $0.0000125 / 1K input tokens, $0.0000375 / 1K output tokens
+            input_cost = self.model_provider.input_tokens / 1000 * 0.0000125
+            output_cost = self.model_provider.output_tokens / 1000 * 0.0000375
+            total_cost = input_cost + output_cost
+            
+            print("\n📊 Token Usage Statistics:")
+            print(f"Input tokens: {self.model_provider.input_tokens:,}")
+            print(f"Output tokens: {self.model_provider.output_tokens:,}")
+            print(f"Total tokens: {self.model_provider.input_tokens + self.model_provider.output_tokens:,}")
+            print(f"Total API calls: {self.model_provider.total_api_calls}")
+            print(f"Estimated cost: ${total_cost:.4f}")
+            print("\nNote: Token counts provide insights into API usage and help optimize prompts.")
+            print("Each API call consists of input tokens (your prompts) and output tokens (model's responses).")
+            if hasattr(self.model_provider, '_use_new_api') and not self.model_provider._use_new_api:
+                print("Note: Token counts are approximate since they're using the legacy API.")
+        elif hasattr(self.model_provider, 'input_tokens') and hasattr(self.model_provider, 'output_tokens'):
+            # Always show basic token count even if detailed stats are not requested
+            total_tokens = self.model_provider.input_tokens + self.model_provider.output_tokens
+            print(f"Total tokens used: {total_tokens:,} (use --show-tokens for details)")
+            
         print("=== Done ===")
 
         return formatted_document

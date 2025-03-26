@@ -29,6 +29,10 @@ class GeminiProvider:
 
         self.model_name = model_name
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        # Initialize token counters
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.total_api_calls = 0
 
         if not self.api_key:
             raise ValueError(
@@ -55,10 +59,31 @@ class GeminiProvider:
             print(f"Error initializing Gemini: {e}")
             raise
 
+    def count_tokens(self, prompt: str) -> int:
+        """Count tokens in the prompt."""
+        try:
+            if self._use_new_api:
+                result = self.client.models.count_tokens(
+                    model=self.model_name, contents=prompt
+                )
+                return result.total_tokens
+            else:
+                # For legacy API, use approximate counting (5 tokens per word)
+                return len(prompt.split()) * 5
+        except Exception as e:
+            print(f"Error counting tokens: {e}")
+            # Fall back to approximate token count
+            return len(prompt.split()) * 5
+
     def generate_content(self, prompt: str, generation_config: Dict[str, Any]) -> Any:
         """Generate content using the Gemini model."""
         max_retries = 3
         retry_count = 0
+        
+        # Count input tokens
+        input_token_count = self.count_tokens(prompt)
+        self.input_tokens += input_token_count
+        self.total_api_calls += 1
 
         while retry_count < max_retries:
             try:
@@ -68,6 +93,14 @@ class GeminiProvider:
                     response = self.client.models.generate_content(
                         model=self.model_name, contents=prompt, generation_config=generation_config
                     )
+                    
+                    # Count output tokens if available in the response
+                    if hasattr(response, "usage") and hasattr(response.usage, "output_tokens"):
+                        self.output_tokens += response.usage.output_tokens
+                    elif response.text:
+                        # Estimate if not available
+                        self.output_tokens += self.count_tokens(response.text)
+                        
                     # Create a wrapper to maintain compatibility with the existing code
                     # Check if response has text before accessing it
                     if hasattr(response, "text"):
@@ -88,6 +121,10 @@ class GeminiProvider:
                     response = self.model.generate_content(
                         prompt, generation_config=generation_config
                     )
+                    
+                    # Estimate token count for output
+                    if hasattr(response, "text"):
+                        self.output_tokens += self.count_tokens(response.text)
 
                     # Check if response has text before returning
                     if hasattr(response, "text"):
@@ -162,6 +199,11 @@ class MockProvider:
 
     def __init__(self):
         """Initialize the mock provider."""
+        # Initialize token counters for compatibility with GeminiProvider
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.total_api_calls = 0
+        
         self.responses = {
             "document_plan": """
             {
@@ -220,6 +262,12 @@ class MockProvider:
 
     def generate_content(self, prompt: str, generation_config: Dict[str, Any]) -> Any:
         """Generate content using pre-defined mock responses."""
+        # Increment API call counter
+        self.total_api_calls += 1
+        
+        # Simple token counting for mock content (just for stats)
+        self.input_tokens += len(prompt.split()) * 5  # Rough estimate: 5 tokens per word
+        
         # Determine which type of response to return based on prompt content
         if "Create a document outline" in prompt:
             response = self.responses["document_plan"]
@@ -233,6 +281,9 @@ class MockProvider:
             response = self.responses["revised_section"]
         else:
             response = "This is a mock response."
+            
+        # Track output tokens
+        self.output_tokens += len(response.split()) * 5  # Rough estimate: 5 tokens per word
 
         # Create a SimpleNamespace to mimic the structure of a real response
         return SimpleNamespace(text=response)
