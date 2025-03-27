@@ -42,7 +42,7 @@ class TestContentGenerator:
     def test_gemini_provider(self):
         """Test content generation with Gemini provider (requires API key)."""
         api_key = os.getenv("GOOGLE_API_KEY")
-        provider = GeminiProvider(api_key=api_key, model_name="gemini-2.0-flash-thinking-exp-01-21")
+        provider = GeminiProvider(api_key=api_key, model_name="gemini-2.0-flash")
         content_generator = ContentGenerator(provider)
 
         section = Section(

@@ -29,6 +29,7 @@ ENV/
 .env
 
 # IDE files
+citations/
 .idea/
 .vscode/
 *.swp

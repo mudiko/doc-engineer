@@ -4,8 +4,9 @@ Templates module for the document generator.
 This module provides templates for formatting documents in different styles.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from .document_parser import GeneratedSection, DocumentPlan
+import os
 
 
 class Template:
@@ -35,7 +36,13 @@ class AcademicTemplate(Template):
 
     @staticmethod
     def format_document(
-        title: str, sections: List[GeneratedSection], output_format: str = "markdown"
+        title: str, 
+        sections: List[GeneratedSection], 
+        output_format: str = "markdown",
+        citation_keys: Optional[List[str]] = None,
+        citation_summaries: Optional[List[Dict[str, str]]] = None,
+        bibtex_path: Optional[str] = None,
+        formatted_bibliography: Optional[str] = None,
     ) -> str:
         """Format document as an academic paper."""
         if output_format == "markdown":
@@ -62,9 +69,32 @@ class AcademicTemplate(Template):
                     document += f"{heading_prefix} {section.title}\n\n"
                     document += f"{section.content}\n\n"
 
-            # Add references section
+            # Add references section with citations if available
             document += "## References\n\n"
-            document += "* References will be generated based on citations in the text.\n\n"
+            
+            # Use formatted bibliography if available
+            if formatted_bibliography:
+                document += formatted_bibliography
+            elif citation_summaries and len(citation_summaries) > 0:
+                # Format citations in academic style
+                for citation in citation_summaries:
+                    authors = ", ".join(citation.get("authors", []))
+                    if len(citation.get("authors", [])) > 3:
+                        # Format as first author et al.
+                        authors = f"{citation.get('authors', [''])[0]} et al."
+                        
+                    year = citation.get("year", "")
+                    title = citation.get("title", "Untitled")
+                    bibtex_key = citation.get("bibtex_key", "")
+                    database = citation.get("database", "")
+                    
+                    document += f"* [{bibtex_key}] {authors}. ({year}). *{title}*. {database}.\n"
+            else:
+                document += "* References will be generated based on citations in the text.\n\n"
+                
+            # Add citation attribution if bibtex path is provided
+            if bibtex_path:
+                document += f"\n\n_Full bibliography available at {os.path.basename(bibtex_path)}._\n\n"
 
             return document
 
@@ -97,9 +127,28 @@ class AcademicTemplate(Template):
 
             # Add references
             document += "<h2>References</h2>\n"
-            document += (
-                "<ul><li>References will be generated based on citations in the text.</li></ul>\n"
-            )
+            if citation_summaries and len(citation_summaries) > 0:
+                document += "<ul>\n"
+                for citation in citation_summaries:
+                    authors = ", ".join(citation.get("authors", []))
+                    if len(citation.get("authors", [])) > 3:
+                        authors = f"{citation.get('authors', [''])[0]} et al."
+                        
+                    year = citation.get("year", "")
+                    title = citation.get("title", "Untitled")
+                    bibtex_key = citation.get("bibtex_key", "")
+                    database = citation.get("database", "")
+                    
+                    document += f"<li>[{bibtex_key}] {authors}. ({year}). <em>{title}</em>. {database}.</li>\n"
+                document += "</ul>\n"
+            else:
+                document += (
+                    "<ul><li>References will be generated based on citations in the text.</li></ul>\n"
+                )
+                
+            # Add citation attribution if bibtex path is provided
+            if bibtex_path:
+                document += f"<p><em>Citations retrieved using academic search API. See {bibtex_path} for full bibliography.</em></p>\n"
 
             document += "</body>\n</html>"
             return document
@@ -125,7 +174,24 @@ class AcademicTemplate(Template):
 
             # Add references
             document += "REFERENCES\n----------\n\n"
-            document += "* References will be generated based on citations in the text.\n\n"
+            if citation_summaries and len(citation_summaries) > 0:
+                for citation in citation_summaries:
+                    authors = ", ".join(citation.get("authors", []))
+                    if len(citation.get("authors", [])) > 3:
+                        authors = f"{citation.get('authors', [''])[0]} et al."
+                        
+                    year = citation.get("year", "")
+                    title = citation.get("title", "Untitled")
+                    bibtex_key = citation.get("bibtex_key", "")
+                    database = citation.get("database", "")
+                    
+                    document += f"* [{bibtex_key}] {authors}. ({year}). {title}. {database}.\n"
+            else:
+                document += "* References will be generated based on citations in the text.\n\n"
+                
+            # Add citation attribution if bibtex path is provided
+            if bibtex_path:
+                document += f"\nCitations retrieved using academic search API. See {bibtex_path} for full bibliography.\n"
 
             return document
 

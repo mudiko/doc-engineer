@@ -1,151 +1,149 @@
 #!/usr/bin/env python3
 """
-Doc Engineer CLI
+Doc Engineer - A powerful single-shot document generation system
 
-A command-line interface for the document generation system.
+This module provides the command-line interface for the Doc Engineer system.
 """
 
 import os
+import sys
 import argparse
-from typing import Optional
+from dotenv import load_dotenv
 
 from core.document_generator import DocumentGenerator
 
 
-def setup_parser() -> argparse.ArgumentParser:
-    """Create and configure the argument parser."""
+def main():
+    """Command-line interface for Doc Engineer."""
+    # Load environment variables from .env file if present
+    load_dotenv()
+
+    # Set up command-line argument parser
     parser = argparse.ArgumentParser(
-        description="Doc Engineer - Generate well-structured documents on any topic",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    # Required arguments
-    parser.add_argument(
-        "title",
-        type=str,
-        nargs="?",
-        default="Advancements of AI",
-        help="Title of the document to generate",
-    )
-
-    # Optional arguments
-    parser.add_argument(
-        "--sections", type=int, default=5, help="Number of main sections to generate"
+        description="Doc Engineer - Generate well-structured documents on any topic"
     )
     parser.add_argument(
-        "--pages", type=int, default=5, help="Approximate length in pages (1 page ≈ 500 words)"
+        "title", 
+        nargs="?", 
+        default="Advancements of AI", 
+        help="Title of the document to generate"
+    )
+    parser.add_argument(
+        "--sections", 
+        type=int, 
+        default=5, 
+        help="Number of main sections to generate"
+    )
+    parser.add_argument(
+        "--pages",
+        type=int,
+        default=5,
+        help="Approximate length in pages (1 page ≈ 500 words)",
     )
     parser.add_argument(
         "--template",
-        type=str,
-        default="academic",
         choices=["academic", "report", "blog"],
+        default="academic",
         help="Template to use for document formatting",
     )
     parser.add_argument(
         "--format",
-        type=str,
-        default="markdown",
         choices=["markdown", "html", "text"],
+        default="markdown",
         help="Output format",
     )
     parser.add_argument(
-        "--output", type=str, default="generated_document.md", help="Output file path"
+        "--output", 
+        default="generated_document.md", 
+        help="Output file path"
     )
     parser.add_argument(
-        "--api-key", type=str, help="Google API key (overrides environment variable)"
+        "--api-key", 
+        default=None, 
+        help="Google API key (overrides environment variable)"
     )
     parser.add_argument(
-        "--mock", action="store_true", help="Use mock provider instead of Gemini API"
+        "--mock", 
+        action="store_true", 
+        help="Use mock provider instead of Gemini API"
     )
     parser.add_argument(
-        "--hide-tokens", action="store_true", help="Hide detailed token usage statistics"
+        "--hide-tokens", 
+        action="store_true", 
+        help="Hide detailed token usage statistics"
+    )
+    parser.add_argument(
+        "--with-citations", 
+        action="store_true", 
+        help="Include citations from academic papers"
+    )
+    parser.add_argument(
+        "--scopus-api-key", 
+        default=None, 
+        help="Scopus API key for citation search (overrides environment variable)"
+    )
+    parser.add_argument(
+        "--ieee-api-key", 
+        default=None, 
+        help="IEEE API key for citation search (overrides environment variable)"
+    )
+    parser.add_argument(
+        "--use-semantic-scholar",
+        action="store_true",
+        help="Use Semantic Scholar for citation retrieval (default)"
+    )
+    parser.add_argument(
+        "--use-findpapers",
+        action="store_true",
+        help="Use findpapers instead of Semantic Scholar for citation retrieval"
     )
 
-    return parser
-
-
-def get_model_provider(use_mock: bool, api_key: Optional[str] = None):
-    """Get the appropriate model provider based on arguments."""
-    if use_mock:
-        from core.modules.content_generator import MockProvider
-
-        print("Using mock provider for demonstration purposes")
-        return MockProvider()
-
-    # Validate API key exists
-    if not api_key:
-        from dotenv import load_dotenv
-
-        load_dotenv()
-        api_key = os.getenv("GOOGLE_API_KEY")
-
-    if not api_key:
-        print(
-            "ERROR: No API key provided. Please set GOOGLE_API_KEY in .env file or use --api-key option."
-        )
-        print("Alternatively, use --mock to run with mock data for demonstration purposes.")
-        return None
-
-    try:
-        from core.modules.content_generator import GeminiProvider
-
-        print(f"Initializing Gemini provider with API key: {api_key[:5]}...")
-        return GeminiProvider(api_key=api_key, model_name="gemini-2.0-flash-001")
-    except ImportError:
-        print("Error: Google Generative AI package not found.")
-        print("Please install it with: poetry add google-generativeai")
-        print("Or use --mock to run with mock data for demonstration.")
-        return None
-    except Exception as e:
-        print(f"Error initializing Gemini API: {e}")
-        print("Please check your API key and permissions.")
-        print("You can use --mock flag to run with mock data for demonstration purposes.")
-        return None
-
-
-def main():
-    """Main function for the Doc Engineer CLI."""
-    # Parse command line arguments
-    parser = setup_parser()
     args = parser.parse_args()
 
-    # Prompt for title if not provided
-    if args.title is None:
-        args.title = input("Enter document title: ")
+    # Check if we're using environment variable for API key
+    api_key = args.api_key or os.getenv("GOOGLE_API_KEY")
+    
+    # Set environment variables for citation APIs if provided
+    if args.scopus_api_key:
+        os.environ["SCOPUS_API_TOKEN"] = args.scopus_api_key
+    if args.ieee_api_key:
+        os.environ["IEEE_API_TOKEN"] = args.ieee_api_key
 
-    # Get model provider
-    model_provider = get_model_provider(args.mock, args.api_key)
-    if not model_provider:
-        return
+    # Determine which citation source to use
+    # By default, use Semantic Scholar unless findpapers is explicitly requested
+    use_semantic_scholar = not args.use_findpapers
+    
+    if args.use_findpapers:
+        print("Using findpapers for citations as requested")
+    else:
+        print("Using Semantic Scholar for citations (default)")
+        
+    # Set up document generator
+    generator = DocumentGenerator(
+        api_key=api_key, 
+        mock=args.mock,
+        use_semantic_scholar=use_semantic_scholar
+    )
 
-    # Initialize generator
-    generator = DocumentGenerator(model_provider=model_provider)
+    # Print document generation info
+    print("\nDoc Engineer - Generating document: '{}'".format(args.title))
+    print("Using template: {}".format(args.template))
+    print("Output format: {}".format(args.format))
 
-    # Generate document
-    print(f"\nDoc Engineer - Generating document: '{args.title}'")
-    print(f"Using template: {args.template}")
-    print(f"Output format: {args.format}")
+    # Generate document with parameters
+    document = generator.generate_document(
+        title=args.title,
+        num_sections=args.sections,
+        template_name=args.template,
+        output_format=args.format,
+        output_path=args.output,
+        target_length_words=args.pages * 500,  # Convert pages to approximate word count
+        show_tokens=not args.hide_tokens,
+        with_citations=args.with_citations,
+    )
 
-    # Calculate words based on pages
-    total_words = args.pages * 500  # Standard approximation
-
-    try:
-        generator.generate_document(
-            title=args.title,
-            num_sections=args.sections,
-            template_name=args.template,
-            output_format=args.format,
-            output_path=args.output,
-            target_length_words=total_words,
-            show_tokens=not args.hide_tokens,
-        )
-
-        print(f"\nDocument successfully generated!")
-        print(f"Saved to: {args.output}")
-    except Exception as e:
-        print(f"Error generating document: {e}")
-        print("You can use --mock flag to run with mock data for demonstration purposes.")
+    print("\nDocument successfully generated!")
+    print("Saved to: {}".format(args.output))
 
 
 if __name__ == "__main__":

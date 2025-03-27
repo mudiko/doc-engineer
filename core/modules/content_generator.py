@@ -22,7 +22,7 @@ class GeminiProvider:
     """Implementation of ModelProvider using Google's Gemini models."""
 
     def __init__(
-        self, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash-thinking-exp-01-21"
+        self, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash"
     ):
         # Import here to avoid requiring google package for mock usage
         import google.generativeai as genai
@@ -256,6 +256,7 @@ class MockProvider:
             The literature review is comprehensive but lacks critical analysis of the studies mentioned. 
             """,
             "revised_section": "This is improved content for the section based on critiques. It would normally be much longer and more detailed, with improvements addressing the specific issues raised in the critique.",
+            "document_critique": "This is a mock document-wide critique. The document has good overall structure but would benefit from more consistent terminology across sections and improved transitions between major topics.",
         }
 
     def generate_content(self, prompt: str, generation_config: Dict[str, Any]) -> Any:
@@ -273,6 +274,8 @@ class MockProvider:
             response = self.responses["section_content"]
         elif "Review the following new section for consistency" in prompt:
             response = self.responses["consistency"]
+        elif "Evaluate this academic document" in prompt and "provide a comprehensive critique" in prompt:
+            response = self.responses["document_critique"]
         elif "Evaluate this academic document" in prompt:
             response = self.responses["critique"]
         elif "Revise the following section" in prompt:
@@ -284,6 +287,7 @@ class MockProvider:
         self.output_tokens += len(response.split()) * 5  # Rough estimate: 5 tokens per word
 
         # Create a SimpleNamespace to mimic the structure of a real response
+        from types import SimpleNamespace
         return SimpleNamespace(text=response)
 
 
@@ -296,15 +300,24 @@ class ContentGenerator:
         self.words_per_token = 0.6
         # Maximum tokens per generation request (approximately 5000 words)
         self.max_output_tokens = 8192
+        # Token usage tracking
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0 
+        self.total_api_calls = 0
 
     def generate_section_content(
         self,
         title: str,
         section: Section,
         previous_sections: Optional[List[GeneratedSection]] = None,
+        citation_context: Optional[str] = None,
     ) -> GeneratedSection:
         """Generate content for a specific section."""
         context = self._create_section_context(section, previous_sections)
+
+        # Add citation context if provided
+        if citation_context:
+            context += "\n\n" + citation_context
 
         # Special handling for abstract
         if section.title.lower() == "abstract":
@@ -340,7 +353,7 @@ Write the abstract as continuous prose with no markdown formatting or special ch
         # Check if the section needs chunking based on estimated length
         if section.estimated_length > self._tokens_to_words(self.max_output_tokens):
             return self._generate_chunked_section_content(
-                title, section, context, previous_sections
+                title, section, context, previous_sections, citation_context
             )
 
         prompt = f"""Write the content for the following section of an academic article about "{title}":
@@ -353,8 +366,16 @@ Requirements:
 3. Structure the content according to the subsections
 4. Maintain consistency with previous sections
 5. Use clear topic sentences for each paragraph
-6. Include appropriate transitions between ideas
+6. Include appropriate transitions between ideas"""
 
+        # Add citation instructions if citation context is provided
+        if citation_context:
+            prompt += """
+7. Use the provided citations where relevant, citing them as [Author et al., Year]
+8. Incorporate citations to support key claims and statements
+9. Ensure proper integration of cited works into your text"""
+
+        prompt += """
 Format the content in Markdown with proper headings and paragraphs.
 IMPORTANT: Do NOT include any code blocks or fenced code sections (```).
 Do NOT wrap your response in ```markdown or any other code block format."""
@@ -385,6 +406,7 @@ Do NOT wrap your response in ```markdown or any other code block format."""
         section: Section,
         context: str,
         previous_sections: Optional[List[GeneratedSection]] = None,
+        citation_context: Optional[str] = None,
     ) -> GeneratedSection:
         """Generate content for a large section in chunks and combine them."""
         # Calculate number of chunks needed
@@ -690,6 +712,8 @@ If there are issues, describe them clearly and concisely, focusing on the most i
         temperature: float = 0.7,
         max_output_tokens: int = 1000,
         purpose: str = "content",
+        max_retries: int = 3,
+        retry_delay: float = 2.0,
     ) -> str:
         """
         Generate content with error handling, returning a default message if generation fails.
@@ -699,25 +723,64 @@ If there are issues, describe them clearly and concisely, focusing on the most i
             temperature (float): Generation temperature
             max_output_tokens (int): Maximum tokens to generate
             purpose (str): Description of what's being generated (for error messages)
+            max_retries (int): Maximum number of retry attempts
+            retry_delay (float): Delay between retries in seconds
 
         Returns:
             str: Generated content or error message
         """
-        try:
-            response = self.model_provider.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": temperature,
-                    "max_output_tokens": max_output_tokens,
-                },
-            )
+        # Track API call
+        self.total_api_calls += 1
+        
+        # Estimate tokens in prompt (this is a rough approximation)
+        estimated_input_tokens = len(prompt.split()) // 1  # ~1 word per token
+        self.total_input_tokens += estimated_input_tokens
+        
+        # Try generating content with retries
+        for attempt in range(max_retries + 1):  # +1 for the initial attempt
+            try:
+                response = self.model_provider.generate_content(
+                    prompt,
+                    generation_config={
+                        "temperature": temperature,
+                        "max_output_tokens": max_output_tokens,
+                    },
+                )
+                
+                # Check if response is empty or None
+                if not response or not hasattr(response, 'text') or not response.text:
+                    if attempt < max_retries:
+                        # Log the retry
+                        print(f"Received empty response from model. Retrying ({attempt + 1}/{max_retries})...")
+                        # Use exponential backoff for retries
+                        import time
+                        time.sleep(retry_delay * (2 ** attempt))
+                        continue
+                    else:
+                        # After all retries, return fallback content
+                        error_message = f"Error generating {purpose}: Received empty response after {max_retries} retries"
+                        print(error_message)
+                        return f"[{error_message}]"
+                
+                # Successful response
+                # Estimate tokens in response
+                estimated_output_tokens = len(response.text.split()) // 1  # ~1 word per token
+                self.total_output_tokens += estimated_output_tokens
+                
+                return response.text
 
-            return response.text
-
-        except Exception as e:
-            error_message = f"Error generating {purpose}: {str(e)}"
-            print(error_message)
-            return f"[{error_message}]"
+            except Exception as e:
+                if attempt < max_retries:
+                    # Log the retry
+                    print(f"Error generating {purpose}: {str(e)}. Retrying ({attempt + 1}/{max_retries})...")
+                    # Use exponential backoff for retries
+                    import time
+                    time.sleep(retry_delay * (2 ** attempt))
+                else:
+                    # After all retries, return fallback content
+                    error_message = f"Error generating {purpose} after {max_retries} retries: {str(e)}"
+                    print(error_message)
+                    return f"[{error_message}]"
 
     def evaluate_document_sections(
         self, title: str, sections: List[GeneratedSection]
@@ -1181,3 +1244,47 @@ Target Length: {section.estimated_length} words"""
                 break  # No closing ```, stop processing
 
         return text
+
+    def generate_document_critique(
+        self,
+        title: str,
+        sections: List[GeneratedSection]
+    ) -> str:
+        """
+        Generate a comprehensive critique of the entire document.
+        
+        Args:
+            title: The document title
+            sections: List of generated sections
+            
+        Returns:
+            A critique of the entire document
+        """
+        # Format sections for critique
+        sections_text = "\n\n".join(
+            f"SECTION {i}: {section.title}\n{section.content[:300]}..." 
+            for i, section in enumerate(sections)
+        )
+        
+        prompt = f"""Evaluate this academic document about "{title}" and provide a comprehensive critique:
+
+{sections_text}
+
+Provide a document-wide critique that addresses:
+1. Overall coherence and flow between sections
+2. Consistency in terminology and concepts across the document
+3. Logical structure and progression of ideas
+4. Completeness of coverage on the topic
+5. Academic rigor and quality of argumentation
+6. Specific recommendations for improving the document as a whole
+
+Your critique should focus on structural and content-level issues rather than detailed stylistic concerns."""
+
+        critique = self._safely_generate_content(
+            prompt,
+            temperature=0.3,
+            max_output_tokens=min(3000, self.max_output_tokens),
+            purpose="generating document-wide critique",
+        )
+        
+        return critique
