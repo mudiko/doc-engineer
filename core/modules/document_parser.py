@@ -35,6 +35,17 @@ class Section:
             level=data.get("level", 1),  # Default to level 1 if not specified
         )
 
+    @classmethod
+    def create_abstract(cls, estimated_length: int = 150) -> "Section":
+        """Create an abstract section."""
+        return cls(
+            title="Abstract",
+            description="A concise summary of the document",
+            subsections=["Summary"],
+            estimated_length=estimated_length,
+            level=2
+        )
+
 
 @dataclass
 class DocumentPlan:

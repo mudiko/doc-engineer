@@ -93,170 +93,123 @@ class DocumentGenerator:
 
         # Step 3: Generate content for each section
         print("[3/5] Generating content...")
-
+        
+        # First, generate an abstract section
+        abstract_section = Section(
+            title="Abstract",
+            description="A concise summary of the document",
+            subsections=["Summary"],
+            estimated_length=150,
+            level=2
+        )
+        
+        # Use introduction as context for generating the abstract (if it will be generated first)
+        abstract_gen_section = None
+        
         # Define a helper function for ThreadPoolExecutor
         def generate_section_content_task(section_index_and_data):
             index, section = section_index_and_data
-            print(f"  • Starting {index + 1}/{len(document_plan.sections)}: {section.title}")
+            section_number = index + 1
+            total_sections = len(document_plan.sections) + 1  # +1 for abstract
+            
+            if index == 0 and section.title == "Abstract":
+                print(f"  • Starting {section_number}/{total_sections}: {section.title}")
+                gen_section = self.content_generator.generate_section_content(title, section, [])
+                print(f"  • Completed {section_number}/{total_sections}: {section.title}")
+                return index, gen_section
+                
+            # For regular sections
+            print(f"  • Starting {section_number}/{total_sections}: {section.title}")
 
             # Introduction needs no previous context, other sections need only minimal context
-            # For sections other than intro, we'll use introduction as context
             context = []
-            if index > 0 and index < len(generated_sections):
-                # Use introduction as context for all sections
-                context = [generated_sections[0]] if generated_sections else []
+            if index > 0 and len(generated_sections) > 0:
+                # Include abstract and introduction as context for other sections
+                context = [s for s in generated_sections if s.title in ["Abstract", "Introduction"]]
 
             # Generate content for this section
             gen_section = self.content_generator.generate_section_content(title, section, context)
 
-            print(f"  • Completed {index + 1}/{len(document_plan.sections)}: {section.title}")
+            print(f"  • Completed {section_number}/{total_sections}: {section.title}")
             return index, gen_section
 
-        # Generate introduction first (needed as context for other sections)
-        if document_plan.sections:
-            print(
-                f"  • 1/{len(document_plan.sections)}: {document_plan.sections[0].title} (Introduction)"
-            )
-            intro_section = self.content_generator.generate_section_content(
-                title, document_plan.sections[0], []
-            )
-            generated_sections = [intro_section]
+        # Generate the abstract first
+        abstract_result = generate_section_content_task((0, abstract_section))
+        abstract_gen_section = abstract_result[1]
+        
+        # Generate all other sections sequentially
+        generated_sections = [abstract_gen_section]  # Start with abstract
+        
+        # Process the regular sections from the plan
+        for i, section in enumerate(document_plan.sections):
+            result = generate_section_content_task((i + 1, section))
+            generated_sections.append(result[1])
 
-            # Now generate the rest of the sections in parallel
-            remaining_sections = [
-                (i, section) for i, section in enumerate(document_plan.sections) if i > 0
-            ]
-
-            if remaining_sections:
-                # Use ThreadPoolExecutor for parallel processing
-                with ThreadPoolExecutor(max_workers=3) as executor:
-                    # Submit all tasks
-                    future_to_section = {
-                        executor.submit(generate_section_content_task, (i, section)): (i, section)
-                        for i, section in remaining_sections
-                    }
-
-                    # Process results as they complete
-                    section_results = []
-                    for future in concurrent.futures.as_completed(future_to_section):
-                        try:
-                            index, section = future.result()
-                            section_results.append((index, section))
-                        except Exception as e:
-                            print(f"Error generating section: {e}")
-
-                    # Sort by original index and add to generated sections
-                    section_results.sort(key=lambda x: x[0])
-                    for _, section in section_results:
-                        generated_sections.append(section)
-
-        # Step 4: Generate document-wide critique
+        # Step 4: Evaluate document coherence and quality
         print("[4/5] Evaluating document coherence and quality...")
+        critiques = self.content_generator.evaluate_document_sections(title, generated_sections)
 
-        # First check for consistency issues between sections
-        consistency_issues: List[Tuple[str, str]] = []
-        for i, section in enumerate(generated_sections[1:], 1):  # section is a GeneratedSection
-            previous_sections = generated_sections[:i]
-            # Pass the content and title separately as required by the method
-            consistency_report = self.content_generator.check_consistency(
-                section.content, section.title, previous_sections
+        issues_found = sum(1 for c in critiques.values() if c.strip())
+        if issues_found:
+            print(f"Found {issues_found} consistency issues")
+            print("Generating document-wide critique...")
+            document_critique = self.content_generator.generate_document_critique(
+                title, generated_sections
             )
-            if consistency_report:
-                consistency_issues.append((section.title, consistency_report))
 
-        if consistency_issues:
-            print(f"Found {len(consistency_issues)} consistency issues")
-
-        # Generate critiques for the entire document
-        print("Generating document-wide critique...")
-        section_critiques = self.content_generator.evaluate_document_sections(
-            title, generated_sections
-        )
-
-        if section_critiques:
-            print(f"Generated critiques for {len(section_critiques)} sections:")
-            for i, section in enumerate(generated_sections):
-                if i in section_critiques:
-                    # Show the first sentence or 100 chars of the critique
-                    critique_text = section_critiques[i]
-                    first_sentence = (
-                        critique_text.split(".")[0] + "..."
-                        if "." in critique_text
-                        else critique_text[:100] + "..."
-                    )
-                    print(f"  • Section {i+1}: {section.title}")
-                    print(f"    Critique: {first_sentence}")
-
-        # Step 5: Revise and improve each section based on critiques
-        print("[5/5] Improving sections based on critique...")
-
-        # Only revise if we have meaningful critiques
-        if section_critiques or consistency_issues:
-            # Prepare the list of sections to improve
+            # Step 5: Improve sections based on critique
+            print("[5/5] Improving sections based on critique...")
             sections_to_improve = []
-
-            # First identify all sections that need improvement
-            for i, section in enumerate(generated_sections):  # section is a GeneratedSection
-                section_critique = section_critiques.get(i, "")
-
-                # Add any relevant consistency issues to the critique
-                consistency_critique = ""
-                for section_title, issue in consistency_issues:
-                    if section_title == section.title:
-                        consistency_critique = f"Consistency issues: {issue}"
-
-                # Combine all critique info
-                combined_critique = section_critique
-                if consistency_critique:
-                    combined_critique += "\n\n" + consistency_critique
-
-                if combined_critique.strip():
-                    sections_to_improve.append((i, section, combined_critique))
+            for i, (section_title, critique) in enumerate(critiques.items()):
+                if critique.strip():
+                    # Find the section by title
+                    section_index = next(
+                        (i for i, s in enumerate(generated_sections) if s.title == section_title),
+                        None,
+                    )
+                    if section_index is not None:
+                        sections_to_improve.append((section_index, critique))
 
             print(f"Improving {len(sections_to_improve)} sections in total")
+            improved_results = []
 
-            # Define a function to improve a section with its critique
-            def improve_section_task(item):
-                i, section, combined_critique = item
+            # Improve sections one by one
+            for section_index, critique in sections_to_improve:
+                section = generated_sections[section_index]
+                section_plan = None
+                
+                # Skip improving abstract if it's included in sections to improve
+                if section.title == "Abstract":
+                    continue
+                    
+                # Find the corresponding plan section
+                if section.title == "Introduction":
+                    section_plan = document_plan.introduction
+                elif section.title == "Conclusion":
+                    section_plan = document_plan.conclusion
+                else:
+                    section_plan = next(
+                        (s for s in document_plan.main_sections if s.title == section.title), None
+                    )
+
+                if not section_plan:
+                    print(f"Warning: Could not find plan for section '{section.title}'")
+                    continue
+
+                # Use abstract and introduction as context for improvements
+                context = [
+                    s.content
+                    for s in generated_sections
+                    if s.title in ["Abstract", "Introduction"] and s.title != section.title
+                ]
+
                 print(f"  • Starting improvements for: {section.title}")
-
-                # Get the section from the document plan
-                plan_section = (
-                    document_plan.sections[i] if i < len(document_plan.sections) else None
-                )
-
-                # Use introduction as context for improved coherence
-                previous_context = []
-                if generated_sections and i > 0:
-                    intro = generated_sections[0]
-                    previous_context = [
-                        f"• Introduction: {' '.join(intro.content.split()[:50])}..."
-                    ]
-
-                # Revise the section based on critique
                 improved_section = self.content_generator.revise_section(
-                    section, combined_critique, plan_section, previous_context
+                    section, critique, section_plan, context
                 )
                 print(f"  • Completed improvements for: {section.title}")
-                return i, improved_section
 
-            # Process improvements in parallel
-            improved_results = []
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                # Submit all tasks
-                future_to_section = {
-                    executor.submit(improve_section_task, item): item
-                    for item in sections_to_improve
-                }
-
-                # Process results as they complete
-                for future in concurrent.futures.as_completed(future_to_section):
-                    try:
-                        i, improved_section = future.result()
-                        improved_results.append((i, improved_section))
-                    except Exception as e:
-                        idx, section, _ = future_to_section[future]
-                        print(f"Error improving section '{section.title}': {e}")
+                improved_results.append((section_index, improved_section))
 
             # Now create the final list of sections with improvements applied
             improved_sections = list(generated_sections)  # Start with a copy of all sections

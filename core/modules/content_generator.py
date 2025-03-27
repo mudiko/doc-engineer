@@ -306,6 +306,37 @@ class ContentGenerator:
         """Generate content for a specific section."""
         context = self._create_section_context(section, previous_sections)
 
+        # Special handling for abstract
+        if section.title.lower() == "abstract":
+            prompt = f"""Write a comprehensive and detailed abstract for an academic article titled "{title}".
+
+Requirements:
+1. The abstract should be approximately {section.estimated_length} words.
+2. Summarize the main purpose, methodology, findings, and conclusions of the article.
+3. Be specific and informative, avoiding vague statements.
+4. Use formal academic language appropriate for scholarly publication.
+5. Make it standalone - readers should understand the paper's focus without reading the full text.
+6. Do NOT include the word "Abstract" as a heading.
+7. Format as a single paragraph without section headers.
+
+Write the abstract as continuous prose with no markdown formatting or special characters."""
+            content = self._safely_generate_content(
+                prompt,
+                temperature=0.7,
+                max_output_tokens=self._words_to_tokens(section.estimated_length * 1.5),
+                purpose="generating abstract",
+            )
+            
+            # Clean any potential markdown from the response
+            cleaned_content = self._clean_markdown_blocks(content)
+            
+            return GeneratedSection(
+                title=section.title,
+                content=cleaned_content,
+                subsections=section.subsections,
+                level=section.level,
+            )
+
         # Check if the section needs chunking based on estimated length
         if section.estimated_length > self._tokens_to_words(self.max_output_tokens):
             return self._generate_chunked_section_content(

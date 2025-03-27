@@ -41,18 +41,26 @@ class AcademicTemplate(Template):
         if output_format == "markdown":
             document = f"# {title}\n\n"
 
-            # Add abstract placeholder
+            # Check if there's an abstract section
+            abstract_section = next((s for s in sections if s.title.lower() == "abstract"), None)
+            
+            # Add abstract section
             document += "## Abstract\n\n"
-            document += "_This paper explores " + title.lower() + "._\n\n"
+            if abstract_section:
+                document += abstract_section.content + "\n\n"
+            else:
+                # Fallback to placeholder if no abstract section found
+                document += "_This paper explores " + title.lower() + "._\n\n"
 
-            # Add each section
+            # Add each section (excluding the abstract)
             for section in sections:
-                # Determine heading level based on section level (default to 2)
-                level = section.level if hasattr(section, "level") else 2
-                heading_prefix = "#" * level
+                if section.title.lower() != "abstract":
+                    # Determine heading level based on section level (default to 2)
+                    level = section.level if hasattr(section, "level") else 2
+                    heading_prefix = "#" * level
 
-                document += f"{heading_prefix} {section.title}\n\n"
-                document += f"{section.content}\n\n"
+                    document += f"{heading_prefix} {section.title}\n\n"
+                    document += f"{section.content}\n\n"
 
             # Add references section
             document += "## References\n\n"
@@ -65,20 +73,27 @@ class AcademicTemplate(Template):
             document = f"<!DOCTYPE html>\n<html>\n<head>\n<title>{title}</title>\n</head>\n<body>\n"
             document += f"<h1>{title}</h1>\n"
 
+            # Check if there's an abstract section
+            abstract_section = next((s for s in sections if s.title.lower() == "abstract"), None)
+            
             # Add abstract
             document += "<h2>Abstract</h2>\n"
-            document += f"<p><em>This paper explores {title.lower()}.</em></p>\n"
+            if abstract_section:
+                document += f"<p>{abstract_section.content}</p>\n"
+            else:
+                document += f"<p><em>This paper explores {title.lower()}.</em></p>\n"
 
-            # Add each section
+            # Add each section (excluding the abstract)
             for section in sections:
-                level = section.level if hasattr(section, "level") else 2
-                document += f"<h{level}>{section.title}</h{level}>\n"
+                if section.title.lower() != "abstract":
+                    level = section.level if hasattr(section, "level") else 2
+                    document += f"<h{level}>{section.title}</h{level}>\n"
 
-                # Convert basic markdown to HTML (paragraphs)
-                paragraphs = section.content.split("\n\n")
-                for paragraph in paragraphs:
-                    if paragraph.strip():
-                        document += f"<p>{paragraph}</p>\n"
+                    # Convert basic markdown to HTML (paragraphs)
+                    paragraphs = section.content.split("\n\n")
+                    for paragraph in paragraphs:
+                        if paragraph.strip():
+                            document += f"<p>{paragraph}</p>\n"
 
             # Add references
             document += "<h2>References</h2>\n"
@@ -92,14 +107,21 @@ class AcademicTemplate(Template):
         else:  # Plain text
             document = f"{title.upper()}\n{'=' * len(title)}\n\n"
 
+            # Check if there's an abstract section
+            abstract_section = next((s for s in sections if s.title.lower() == "abstract"), None)
+            
             # Add abstract
             document += "ABSTRACT\n--------\n\n"
-            document += f"This paper explores {title.lower()}.\n\n"
+            if abstract_section:
+                document += abstract_section.content + "\n\n"
+            else:
+                document += f"This paper explores {title.lower()}.\n\n"
 
-            # Add each section
+            # Add each section (excluding the abstract)
             for section in sections:
-                document += f"{section.title.upper()}\n{'-' * len(section.title)}\n\n"
-                document += f"{section.content}\n\n"
+                if section.title.lower() != "abstract":
+                    document += f"{section.title.upper()}\n{'-' * len(section.title)}\n\n"
+                    document += f"{section.content}\n\n"
 
             # Add references
             document += "REFERENCES\n----------\n\n"
