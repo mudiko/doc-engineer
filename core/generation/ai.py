@@ -28,7 +28,7 @@ class SynthesisConfig:
 
 
 class AI:
-    def __init__(self, model_name: str = "gemini-pro"):
+    def __init__(self, model_name: str = "gemini-2.0-flash"):
         self.model_name = model_name
         # Configure Gemini API
         genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))

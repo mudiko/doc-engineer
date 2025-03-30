@@ -10,7 +10,11 @@ import sys
 import argparse
 from dotenv import load_dotenv
 
-from core.document_generator import DocumentGenerator
+# Updated imports after refactoring
+from core.orchestration.document_generator import DocumentGenerator
+from core.generation.content_generator import ContentGenerator, MockProvider, GeminiProvider
+from core.citations.citation_manager import CitationManager
+from core.planning.document_planner import DocumentPlanner # Added import
 
 
 def main():
@@ -117,13 +121,47 @@ def main():
         print("Using findpapers for citations as requested")
     else:
         print("Using Semantic Scholar for citations (default)")
-        
-    # Set up document generator
-    generator = DocumentGenerator(
-        api_key=api_key, 
-        mock=args.mock,
-        use_semantic_scholar=use_semantic_scholar
+
+    # --- Dependency Injection Setup ---
+    # 1. Create Model Provider
+    if args.mock:
+        print("Using mock provider for demonstration purposes")
+        model_provider = MockProvider()
+    else:
+        try:
+            print(f"Initializing Gemini provider with API key: {api_key[:5]}...")
+            model_provider = GeminiProvider(api_key=api_key)
+        except ImportError:
+            print("Error: Google Generative AI package not found.")
+            print("Please install it with: poetry add google-generativeai")
+            print("Or use --mock to run with mock data for demonstration.")
+            sys.exit(1)
+        except ValueError as e: # Catch missing API key error from GeminiProvider
+             print(f"Error: {e}")
+             sys.exit(1)
+
+    # 2. Create Content Generator
+    content_generator = ContentGenerator(model_provider=model_provider)
+
+    # 3. Create Citation Manager
+    citation_manager = CitationManager(
+        scopus_api_token=os.getenv("SCOPUS_API_TOKEN"),
+        ieee_api_token=os.getenv("IEEE_API_TOKEN"),
+        use_semantic_scholar=use_semantic_scholar and not args.mock # Pass mock status here
     )
+
+    # 4. Create Document Planner
+    # Note: Planner might use its own model instance or could potentially share one
+    # For now, it initializes its own based on GOOGLE_API_KEY env var
+    document_planner = DocumentPlanner() # Assuming default model is okay
+
+    # 5. Create Document Generator with injected dependencies
+    generator = DocumentGenerator(
+        document_planner=document_planner, # Inject planner
+        content_generator=content_generator,
+        citation_manager=citation_manager
+    )
+    # --- End Dependency Injection Setup ---
 
     # Print document generation info
     print("\nDoc Engineer - Generating document: '{}'".format(args.title))

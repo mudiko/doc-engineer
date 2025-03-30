@@ -9,8 +9,9 @@ import os
 import pytest
 from unittest.mock import patch
 
-from core.modules.content_generator import GeminiProvider, MockProvider, ContentGenerator
-from core.modules.document_parser import Section, GeneratedSection
+# Updated imports after refactoring
+from core.generation.content_generator import GeminiProvider, MockProvider, ContentGenerator
+from core.planning.document_parser import Section, GeneratedSection
 
 
 class TestContentGenerator:
@@ -61,20 +62,21 @@ class TestContentGenerator:
         assert generated_section.title == "Introduction to AI"
         assert len(generated_section.content) > 0
 
-    def test_document_plan_creation(self):
-        """Test document plan creation."""
-        provider = MockProvider()
-        content_generator = ContentGenerator(provider)
-
-        # Create a document plan
-        document_plan = content_generator.create_document_plan(
-            title="Test Document", num_sections=5, target_length_words=2500
-        )
-
-        # Check if plan was created properly
-        assert document_plan.topic == "Test Document"
-        assert len(document_plan.sections) > 0
-        assert document_plan.total_estimated_length > 0
+    # Removed test_document_plan_creation as this method was moved to DocumentPlanner
+    # def test_document_plan_creation(self):
+    #     """Test document plan creation."""
+    #     provider = MockProvider()
+    #     content_generator = ContentGenerator(provider)
+    #
+    #     # Create a document plan
+    #     document_plan = content_generator.create_document_plan(
+    #         title="Test Document", num_sections=5, target_length_words=2500
+    #     )
+    #
+    #     # Check if plan was created properly
+    #     assert document_plan.topic == "Test Document"
+    #     assert len(document_plan.sections) > 0
+    #     assert document_plan.total_estimated_length > 0
 
     def test_section_evaluation(self):
         """Test section evaluation and critique."""

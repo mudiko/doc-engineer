@@ -18,52 +18,36 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-from .modules.content_generator import ContentGenerator, ModelProvider
-from .modules.document_parser import Section, DocumentPlan, GeneratedSection
-from .modules.templates import get_template
-from .modules.citation_manager import CitationManager
+# Updated imports after refactoring
+from core.generation.content_generator import ContentGenerator
+from core.planning.document_parser import Section, DocumentPlan, GeneratedSection
+from core.planning.document_planner import DocumentPlanner # Added import
+from core.formatting.templates import get_template
+from core.citations.citation_manager import CitationManager
 
 
 class DocumentGenerator:
     """Class for generating complete documents with AI assistance."""
 
-    def __init__(self, api_key: Optional[str] = None, mock: bool = False, use_semantic_scholar: bool = True):
+    def __init__(self,
+                 document_planner: DocumentPlanner,
+                 content_generator: ContentGenerator,
+                 citation_manager: CitationManager):
         """
-        Initialize the document generator.
+        Initialize the document generator with injected dependencies.
 
         Args:
-            api_key: API key for the content generation model provider.
-            mock: Whether to use mock data for testing.
-            use_semantic_scholar: Whether to use Semantic Scholar for citation retrieval.
+            document_planner: An instance of DocumentPlanner.
+            content_generator: An instance of ContentGenerator.
+            citation_manager: An instance of CitationManager.
         """
-        # Store the mock flag for later use
-        self.mock = mock
-        
-        if mock:
-            from .modules.content_generator import MockProvider
+        self.document_planner = document_planner
+        self.content_generator = content_generator
+        self.citation_manager = citation_manager
+        # Note: The 'mock' status is now determined by the type of providers injected,
+        # rather than a flag within DocumentGenerator.
 
-            print("Using mock provider for demonstration purposes")
-            self.content_generator = ContentGenerator(MockProvider())
-        else:
-            try:
-                from .modules.content_generator import GeminiProvider
-
-                print(f"Initializing Gemini provider with API key: {api_key[:5]}...")
-                self.content_generator = ContentGenerator(GeminiProvider(api_key))
-            except ImportError:
-                print("Error: Google Generative AI package not found.")
-                print("Please install it with: poetry add google-generativeai")
-                print("Or use --mock to run with mock data for demonstration.")
-                sys.exit(1)
-
-        # Initialize citation manager
-        self.citation_manager = CitationManager(
-            scopus_api_token=os.getenv("SCOPUS_API_TOKEN"),
-            ieee_api_token=os.getenv("IEEE_API_TOKEN"),
-            use_semantic_scholar=use_semantic_scholar and not mock
-        )
-
-        print("Document generator initialized successfully")
+        print("Document generator initialized successfully with injected dependencies.")
 
     def generate_document(
         self,
@@ -107,17 +91,17 @@ class DocumentGenerator:
                     document_id=document_id,
                     limit=20,
                     limit_per_database=5,
-                    use_mock=self.mock  # Pass the mock flag to use mock data if specified
+                    # use_mock=self.mock # Removed: Mock status handled by injected CitationManager config
                 )
                 print(f"Found {len(citations)} relevant citations")
             except Exception as e:
                 print(f"Warning: Failed to retrieve citations: {e}")
                 print("Proceeding without citations")
         
-        # Step 2: Create a document plan
+        # Step 2: Create a document plan using the injected planner
         print("[1/5] Creating document plan...")
-        document_plan = self.content_generator.create_document_plan(
-            title, num_sections, target_length_words=target_length_words
+        document_plan = self.document_planner.create_plan(
+            topic=title, num_sections=num_sections, target_length_words=target_length_words
         )
         print(f"Plan created with {len(document_plan.sections)} sections")
 
@@ -178,8 +162,8 @@ class DocumentGenerator:
             # Include citation information if available
             citation_context = ""
             if with_citations and citations:
-                # Select relevant citations for this section
-                section_citations = self._select_citations_for_section(citations, section.title, section.description, document_id)
+                # Select relevant citations for this section using the CitationManager
+                section_citations = self.citation_manager.select_citations_for_section(citations, section.title, section.description, document_id)
                 if section_citations:
                     citation_context = "\nRelevant citations for this section:\n"
                     for i, citation in enumerate(section_citations[:5]):  # Limit to 5 citations
@@ -357,102 +341,4 @@ class DocumentGenerator:
 
         return formatted_document
     
-    def _select_citations_for_section(self, citations: List[Dict[str, Any]], section_title: str, section_description: str, document_id: str = None) -> List[Dict[str, Any]]:
-        """
-        Select citations that are relevant to a specific section using vector search when available.
-        
-        Args:
-            citations: List of citation metadata
-            section_title: Title of the section
-            section_description: Description of the section
-            document_id: Unique identifier for the document
-            
-        Returns:
-            List of relevant citations with text chunks
-        """
-        # If document_id is provided and vector index exists, use semantic search
-        if document_id and hasattr(self.citation_manager, 'query_vector_index'):
-            try:
-                # Create a query from the section title and description
-                query = f"{section_title}: {section_description}"
-                
-                # Query the vector index
-                print(f"Using vector search for '{section_title}' section")
-                vector_results = self.citation_manager.query_vector_index(document_id, query, top_k=5)
-                
-                if vector_results:
-                    # Process vector search results
-                    enhanced_citations = []
-                    seen_keys = set()
-                    
-                    for result in vector_results:
-                        # Get metadata from the result
-                        metadata = result.get('metadata', {})
-                        text = result.get('text', '')
-                        
-                        # Find the corresponding citation
-                        citation_key = metadata.get('paperId', '')
-                        matching_citation = None
-                        
-                        for citation in citations:
-                            if citation.get('bibtex_key') == citation_key or citation.get('title') == metadata.get('title'):
-                                matching_citation = citation.copy()
-                                break
-                        
-                        if not matching_citation:
-                            # If no exact match, create a new citation from metadata
-                            matching_citation = {
-                                "bibtex_key": citation_key,
-                                "title": metadata.get('title', 'Unknown Title'),
-                                "authors": metadata.get('authors', []),
-                                "year": metadata.get('year', ''),
-                                "abstract": metadata.get('abstract', ''),
-                            }
-                        
-                        # Add the text chunk to the citation
-                        if 'text_chunks' not in matching_citation:
-                            matching_citation['text_chunks'] = []
-                        
-                        # Add this text chunk if it's not too long
-                        if len(text) > 50:  # Only add substantive chunks
-                            matching_citation['text_chunks'].append(text)
-                            
-                        # Only add each citation once
-                        if matching_citation.get('bibtex_key') not in seen_keys:
-                            seen_keys.add(matching_citation.get('bibtex_key'))
-                            enhanced_citations.append(matching_citation)
-                    
-                    if enhanced_citations:
-                        print(f"Found {len(enhanced_citations)} relevant citations using vector search")
-                        return enhanced_citations
-                    
-            except Exception as e:
-                print(f"Vector search failed: {e}. Falling back to keyword matching.")
-        
-        # Fall back to keyword matching if vector search failed or is not available
-        print("Using keyword matching for citation selection")
-        keywords = set([word.lower() for word in section_title.split() + section_description.split() if len(word) > 3])
-        
-        scored_citations = []
-        for citation in citations:
-            # Calculate relevance score based on keyword matches in title and abstract
-            score = 0
-            title = citation.get("title", "").lower()
-            abstract = citation.get("abstract", "").lower()
-            
-            # Check title matches
-            for keyword in keywords:
-                if keyword in title:
-                    score += 3  # Title matches are more important
-                if keyword in abstract:
-                    score += 1
-            
-            # Only include citations with at least some relevance
-            if score > 0:
-                scored_citations.append((citation, score))
-        
-        # Sort by relevance score
-        scored_citations.sort(key=lambda x: x[1], reverse=True)
-        
-        # Return the citations without scores
-        return [citation for citation, _ in scored_citations]
+    # Removed _select_citations_for_section method as it's now in CitationManager

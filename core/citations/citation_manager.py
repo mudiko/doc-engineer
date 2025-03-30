@@ -875,7 +875,107 @@ class CitationManager:
             keyword_part = " OR ".join([f"[{kw}]" for kw in keywords])
             query += f" AND ({keyword_part})"
         
-        return query 
+        return query
+
+    def select_citations_for_section(self, citations: List[Dict[str, Any]], section_title: str, section_description: str, document_id: str = None) -> List[Dict[str, Any]]:
+        """
+        Select citations that are relevant to a specific section using vector search when available.
+
+        Args:
+            citations: List of citation metadata (potentially pre-filtered)
+            section_title: Title of the section
+            section_description: Description of the section
+            document_id: Unique identifier for the document
+
+        Returns:
+            List of relevant citations with text chunks
+        """
+        # If document_id is provided and vector index exists, use semantic search
+        if document_id and hasattr(self, 'query_vector_index'): # Changed self.citation_manager to self
+            try:
+                # Create a query from the section title and description
+                query = f"{section_title}: {section_description}"
+
+                # Query the vector index
+                print(f"Using vector search for '{section_title}' section")
+                vector_results = self.query_vector_index(document_id, query, top_k=5) # Changed self.citation_manager to self
+
+                if vector_results:
+                    # Process vector search results
+                    enhanced_citations = []
+                    seen_keys = set()
+
+                    for result in vector_results:
+                        # Get metadata from the result
+                        metadata = result.get('metadata', {})
+                        text = result.get('text', '')
+
+                        # Find the corresponding citation
+                        citation_key = metadata.get('paperId', '')
+                        matching_citation = None
+
+                        for citation in citations:
+                            if citation.get('bibtex_key') == citation_key or citation.get('title') == metadata.get('title'):
+                                matching_citation = citation.copy()
+                                break
+
+                        if not matching_citation:
+                            # If no exact match, create a new citation from metadata
+                            matching_citation = {
+                                "bibtex_key": citation_key,
+                                "title": metadata.get('title', 'Unknown Title'),
+                                "authors": metadata.get('authors', []),
+                                "year": metadata.get('year', ''),
+                                "abstract": metadata.get('abstract', ''),
+                            }
+
+                        # Add the text chunk to the citation
+                        if 'text_chunks' not in matching_citation:
+                            matching_citation['text_chunks'] = []
+
+                        # Add this text chunk if it's not too long
+                        if len(text) > 50:  # Only add substantive chunks
+                            matching_citation['text_chunks'].append(text)
+
+                        # Only add each citation once
+                        if matching_citation.get('bibtex_key') not in seen_keys:
+                            seen_keys.add(matching_citation.get('bibtex_key'))
+                            enhanced_citations.append(matching_citation)
+
+                    if enhanced_citations:
+                        print(f"Found {len(enhanced_citations)} relevant citations using vector search")
+                        return enhanced_citations
+
+            except Exception as e:
+                print(f"Vector search failed: {e}. Falling back to keyword matching.")
+
+        # Fall back to keyword matching if vector search failed or is not available
+        print("Using keyword matching for citation selection")
+        keywords = set([word.lower() for word in section_title.split() + section_description.split() if len(word) > 3])
+
+        scored_citations = []
+        for citation in citations:
+            # Calculate relevance score based on keyword matches in title and abstract
+            score = 0
+            title = citation.get("title", "").lower()
+            abstract = citation.get("abstract", "").lower()
+
+            # Check title matches
+            for keyword in keywords:
+                if keyword in title:
+                    score += 3  # Title matches are more important
+                if keyword in abstract:
+                    score += 1
+
+            # Only include citations with at least some relevance
+            if score > 0:
+                scored_citations.append((citation, score))
+
+        # Sort by relevance score
+        scored_citations.sort(key=lambda x: x[1], reverse=True)
+
+        # Return the citations without scores
+        return [citation for citation, _ in scored_citations]
 
     def query_vector_index(self, document_id: str, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """
@@ -1018,4 +1118,4 @@ class CitationManager:
             return None
         except Exception as e:
             self.logger.error(f"Error downloading PDF: {str(e)}")
-            return None 
+            return None

@@ -5,7 +5,8 @@ This module provides templates for formatting documents in different styles.
 """
 
 from typing import Dict, Any, List, Optional
-from .document_parser import GeneratedSection, DocumentPlan
+# Updated import after refactoring
+from core.planning.document_parser import GeneratedSection, DocumentPlan
 import os
 
 

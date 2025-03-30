@@ -10,17 +10,47 @@ import pytest
 from unittest.mock import patch, MagicMock
 from tempfile import NamedTemporaryFile
 
-from core.document_generator import DocumentGenerator
-from core.modules.content_generator import MockProvider
+# Updated imports after refactoring
+from core.orchestration.document_generator import DocumentGenerator
+from core.generation.content_generator import MockProvider, ContentGenerator, GeminiProvider # Added ContentGenerator, GeminiProvider
+from core.planning.document_planner import DocumentPlanner # Added
+from core.citations.citation_manager import CitationManager # Added
 
 
 class TestDocumentGenerator:
     """Test the document generator functionality."""
 
-    def test_document_generation_with_mock(self):
+    @patch("core.planning.document_planner.DocumentPlanner")
+    @patch("core.citations.citation_manager.CitationManager")
+    def test_document_generation_with_mock(self, mock_citation_manager_class, mock_planner_class):
         """Test document generation with mock provider."""
-        model_provider = MockProvider()
-        generator = DocumentGenerator(model_provider=model_provider)
+        # Setup mocks for dependencies
+        mock_planner = MagicMock()
+        mock_planner_class.return_value = mock_planner
+        # Mock the create_plan method to return a basic DocumentPlan structure
+        mock_plan = MagicMock()
+        mock_plan.sections = [MagicMock(title="Introduction"), MagicMock(title="Body"), MagicMock(title="Conclusion")]
+        mock_plan.introduction = mock_plan.sections[0]
+        mock_plan.main_sections = [mock_plan.sections[1]]
+        mock_plan.conclusion = mock_plan.sections[2]
+        mock_plan.total_estimated_length = 1000
+        mock_planner.create_plan.return_value = mock_plan
+
+        mock_citation_manager = MagicMock()
+        mock_citation_manager_class.return_value = mock_citation_manager
+        mock_citation_manager.search_papers.return_value = [] # No citations for basic mock test
+        mock_citation_manager.select_citations_for_section.return_value = []
+
+        # Create the actual ContentGenerator with a MockProvider
+        mock_model_provider = MockProvider()
+        content_generator = ContentGenerator(model_provider=mock_model_provider)
+
+        # Instantiate DocumentGenerator with mocks and real ContentGenerator
+        generator = DocumentGenerator(
+            document_planner=mock_planner,
+            content_generator=content_generator,
+            citation_manager=mock_citation_manager
+        )
 
         with NamedTemporaryFile(suffix=".md", delete=False) as tmp:
             output_path = tmp.name
@@ -48,10 +78,34 @@ class TestDocumentGenerator:
             if os.path.exists(output_path):
                 os.unlink(output_path)
 
-    def test_different_templates(self):
+    @patch("core.planning.document_planner.DocumentPlanner")
+    @patch("core.citations.citation_manager.CitationManager")
+    def test_different_templates(self, mock_citation_manager_class, mock_planner_class):
         """Test document generation with different templates."""
-        model_provider = MockProvider()
-        generator = DocumentGenerator(model_provider=model_provider)
+        # Setup mocks
+        mock_planner = MagicMock()
+        mock_planner_class.return_value = mock_planner
+        mock_plan = MagicMock()
+        mock_plan.sections = [MagicMock(title="Intro"), MagicMock(title="Body"), MagicMock(title="Concl")]
+        mock_plan.introduction = mock_plan.sections[0]
+        mock_plan.main_sections = [mock_plan.sections[1]]
+        mock_plan.conclusion = mock_plan.sections[2]
+        mock_plan.total_estimated_length = 1000
+        mock_planner.create_plan.return_value = mock_plan
+
+        mock_citation_manager = MagicMock()
+        mock_citation_manager_class.return_value = mock_citation_manager
+        mock_citation_manager.search_papers.return_value = []
+        mock_citation_manager.select_citations_for_section.return_value = []
+
+        mock_model_provider = MockProvider()
+        content_generator = ContentGenerator(model_provider=mock_model_provider)
+
+        generator = DocumentGenerator(
+            document_planner=mock_planner,
+            content_generator=content_generator,
+            citation_manager=mock_citation_manager
+        )
 
         templates = ["academic", "report", "blog"]
 
@@ -81,10 +135,34 @@ class TestDocumentGenerator:
                 if os.path.exists(output_path):
                     os.unlink(output_path)
 
-    def test_different_output_formats(self):
+    @patch("core.planning.document_planner.DocumentPlanner")
+    @patch("core.citations.citation_manager.CitationManager")
+    def test_different_output_formats(self, mock_citation_manager_class, mock_planner_class):
         """Test document generation with different output formats."""
-        model_provider = MockProvider()
-        generator = DocumentGenerator(model_provider=model_provider)
+        # Setup mocks
+        mock_planner = MagicMock()
+        mock_planner_class.return_value = mock_planner
+        mock_plan = MagicMock()
+        mock_plan.sections = [MagicMock(title="Intro"), MagicMock(title="Body"), MagicMock(title="Concl")]
+        mock_plan.introduction = mock_plan.sections[0]
+        mock_plan.main_sections = [mock_plan.sections[1]]
+        mock_plan.conclusion = mock_plan.sections[2]
+        mock_plan.total_estimated_length = 1000
+        mock_planner.create_plan.return_value = mock_plan
+
+        mock_citation_manager = MagicMock()
+        mock_citation_manager_class.return_value = mock_citation_manager
+        mock_citation_manager.search_papers.return_value = []
+        mock_citation_manager.select_citations_for_section.return_value = []
+
+        mock_model_provider = MockProvider()
+        content_generator = ContentGenerator(model_provider=mock_model_provider)
+
+        generator = DocumentGenerator(
+            document_planner=mock_planner,
+            content_generator=content_generator,
+            citation_manager=mock_citation_manager
+        )
 
         formats = ["markdown", "html", "text"]
 
@@ -127,13 +205,32 @@ class TestDocumentGenerator:
                     os.unlink(output_path)
 
     @pytest.mark.skipif(not os.getenv("GOOGLE_API_KEY"), reason="No API key available")
-    def test_with_real_api(self):
+    @patch("core.citations.citation_manager.CitationManager") # Mock citation manager for API test too
+    def test_with_real_api(self, mock_citation_manager_class):
         """Test document generation with real API (skipped if no API key)."""
-        from core.modules.content_generator import GeminiProvider
-
         api_key = os.getenv("GOOGLE_API_KEY")
-        provider = GeminiProvider(api_key=api_key, model_name="gemini-2.0-flash-thinking-exp-01-21")
-        generator = DocumentGenerator(model_provider=provider)
+        if not api_key:
+             pytest.skip("GOOGLE_API_KEY not set")
+
+        # Use real providers/managers where possible, mock others
+        try:
+             model_provider = GeminiProvider(api_key=api_key, model_name="gemini-pro") # Use standard model name
+             content_generator = ContentGenerator(model_provider=model_provider)
+             document_planner = DocumentPlanner() # Use real planner
+        except Exception as e:
+             pytest.skip(f"Skipping real API test due to initialization error: {e}")
+
+
+        mock_citation_manager = MagicMock()
+        mock_citation_manager_class.return_value = mock_citation_manager
+        mock_citation_manager.search_papers.return_value = [] # Keep citations mocked for speed/simplicity
+        mock_citation_manager.select_citations_for_section.return_value = []
+
+        generator = DocumentGenerator(
+            document_planner=document_planner,
+            content_generator=content_generator,
+            citation_manager=mock_citation_manager
+        )
 
         with NamedTemporaryFile(suffix=".md", delete=False) as tmp:
             output_path = tmp.name

@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from abc import ABC, abstractmethod
 
-from .document_parser import Section, DocumentPlan, GeneratedSection
+# Updated import after refactoring
+from core.planning.document_parser import Section, DocumentPlan, GeneratedSection
 
 
 @dataclass
