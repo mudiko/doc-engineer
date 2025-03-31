@@ -55,7 +55,7 @@ This architecture allows for easy extension and customization of each component.
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/doc-engineer.git
+   git clone https://github.com/mudiko/doc-engineer.git
    cd doc-engineer
    ```
 
