@@ -5,6 +5,7 @@ This module provides templates for formatting documents in different styles.
 """
 
 from typing import Dict, Any, List, Optional
+
 # Updated import after refactoring
 from core.planning.document_parser import GeneratedSection, DocumentPlan
 import os
@@ -37,8 +38,8 @@ class AcademicTemplate(Template):
 
     @staticmethod
     def format_document(
-        title: str, 
-        sections: List[GeneratedSection], 
+        title: str,
+        sections: List[GeneratedSection],
         output_format: str = "markdown",
         citation_keys: Optional[List[str]] = None,
         citation_summaries: Optional[List[Dict[str, str]]] = None,
@@ -51,7 +52,7 @@ class AcademicTemplate(Template):
 
             # Check if there's an abstract section
             abstract_section = next((s for s in sections if s.title.lower() == "abstract"), None)
-            
+
             # Add abstract section
             document += "## Abstract\n\n"
             if abstract_section:
@@ -72,7 +73,7 @@ class AcademicTemplate(Template):
 
             # Add references section with citations if available
             document += "## References\n\n"
-            
+
             # Use formatted bibliography if available
             if formatted_bibliography:
                 document += formatted_bibliography
@@ -83,19 +84,21 @@ class AcademicTemplate(Template):
                     if len(citation.get("authors", [])) > 3:
                         # Format as first author et al.
                         authors = f"{citation.get('authors', [''])[0]} et al."
-                        
+
                     year = citation.get("year", "")
                     title = citation.get("title", "Untitled")
                     bibtex_key = citation.get("bibtex_key", "")
                     database = citation.get("database", "")
-                    
+
                     document += f"* [{bibtex_key}] {authors}. ({year}). *{title}*. {database}.\n"
             else:
                 document += "* References will be generated based on citations in the text.\n\n"
-                
+
             # Add citation attribution if bibtex path is provided
             if bibtex_path:
-                document += f"\n\n_Full bibliography available at {os.path.basename(bibtex_path)}._\n\n"
+                document += (
+                    f"\n\n_Full bibliography available at {os.path.basename(bibtex_path)}._\n\n"
+                )
 
             return document
 
@@ -106,7 +109,7 @@ class AcademicTemplate(Template):
 
             # Check if there's an abstract section
             abstract_section = next((s for s in sections if s.title.lower() == "abstract"), None)
-            
+
             # Add abstract
             document += "<h2>Abstract</h2>\n"
             if abstract_section:
@@ -134,19 +137,17 @@ class AcademicTemplate(Template):
                     authors = ", ".join(citation.get("authors", []))
                     if len(citation.get("authors", [])) > 3:
                         authors = f"{citation.get('authors', [''])[0]} et al."
-                        
+
                     year = citation.get("year", "")
                     title = citation.get("title", "Untitled")
                     bibtex_key = citation.get("bibtex_key", "")
                     database = citation.get("database", "")
-                    
+
                     document += f"<li>[{bibtex_key}] {authors}. ({year}). <em>{title}</em>. {database}.</li>\n"
                 document += "</ul>\n"
             else:
-                document += (
-                    "<ul><li>References will be generated based on citations in the text.</li></ul>\n"
-                )
-                
+                document += "<ul><li>References will be generated based on citations in the text.</li></ul>\n"
+
             # Add citation attribution if bibtex path is provided
             if bibtex_path:
                 document += f"<p><em>Citations retrieved using academic search API. See {bibtex_path} for full bibliography.</em></p>\n"
@@ -159,7 +160,7 @@ class AcademicTemplate(Template):
 
             # Check if there's an abstract section
             abstract_section = next((s for s in sections if s.title.lower() == "abstract"), None)
-            
+
             # Add abstract
             document += "ABSTRACT\n--------\n\n"
             if abstract_section:
@@ -180,16 +181,16 @@ class AcademicTemplate(Template):
                     authors = ", ".join(citation.get("authors", []))
                     if len(citation.get("authors", [])) > 3:
                         authors = f"{citation.get('authors', [''])[0]} et al."
-                        
+
                     year = citation.get("year", "")
                     title = citation.get("title", "Untitled")
                     bibtex_key = citation.get("bibtex_key", "")
                     database = citation.get("database", "")
-                    
+
                     document += f"* [{bibtex_key}] {authors}. ({year}). {title}. {database}.\n"
             else:
                 document += "* References will be generated based on citations in the text.\n\n"
-                
+
             # Add citation attribution if bibtex path is provided
             if bibtex_path:
                 document += f"\nCitations retrieved using academic search API. See {bibtex_path} for full bibliography.\n"

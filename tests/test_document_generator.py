@@ -12,9 +12,13 @@ from tempfile import NamedTemporaryFile
 
 # Updated imports after refactoring
 from core.orchestration.document_generator import DocumentGenerator
-from core.generation.content_generator import MockProvider, ContentGenerator, GeminiProvider # Added ContentGenerator, GeminiProvider
-from core.planning.document_planner import DocumentPlanner # Added
-from core.citations.citation_manager import CitationManager # Added
+from core.generation.content_generator import (
+    MockProvider,
+    ContentGenerator,
+    GeminiProvider,
+)  # Added ContentGenerator, GeminiProvider
+from core.planning.document_planner import DocumentPlanner  # Added
+from core.citations.citation_manager import CitationManager  # Added
 
 
 class TestDocumentGenerator:
@@ -29,7 +33,11 @@ class TestDocumentGenerator:
         mock_planner_class.return_value = mock_planner
         # Mock the create_plan method to return a basic DocumentPlan structure
         mock_plan = MagicMock()
-        mock_plan.sections = [MagicMock(title="Introduction"), MagicMock(title="Body"), MagicMock(title="Conclusion")]
+        mock_plan.sections = [
+            MagicMock(title="Introduction"),
+            MagicMock(title="Body"),
+            MagicMock(title="Conclusion"),
+        ]
         mock_plan.introduction = mock_plan.sections[0]
         mock_plan.main_sections = [mock_plan.sections[1]]
         mock_plan.conclusion = mock_plan.sections[2]
@@ -38,7 +46,7 @@ class TestDocumentGenerator:
 
         mock_citation_manager = MagicMock()
         mock_citation_manager_class.return_value = mock_citation_manager
-        mock_citation_manager.search_papers.return_value = [] # No citations for basic mock test
+        mock_citation_manager.search_papers.return_value = []  # No citations for basic mock test
         mock_citation_manager.select_citations_for_section.return_value = []
 
         # Create the actual ContentGenerator with a MockProvider
@@ -49,7 +57,7 @@ class TestDocumentGenerator:
         generator = DocumentGenerator(
             document_planner=mock_planner,
             content_generator=content_generator,
-            citation_manager=mock_citation_manager
+            citation_manager=mock_citation_manager,
         )
 
         with NamedTemporaryFile(suffix=".md", delete=False) as tmp:
@@ -86,7 +94,11 @@ class TestDocumentGenerator:
         mock_planner = MagicMock()
         mock_planner_class.return_value = mock_planner
         mock_plan = MagicMock()
-        mock_plan.sections = [MagicMock(title="Intro"), MagicMock(title="Body"), MagicMock(title="Concl")]
+        mock_plan.sections = [
+            MagicMock(title="Intro"),
+            MagicMock(title="Body"),
+            MagicMock(title="Concl"),
+        ]
         mock_plan.introduction = mock_plan.sections[0]
         mock_plan.main_sections = [mock_plan.sections[1]]
         mock_plan.conclusion = mock_plan.sections[2]
@@ -104,7 +116,7 @@ class TestDocumentGenerator:
         generator = DocumentGenerator(
             document_planner=mock_planner,
             content_generator=content_generator,
-            citation_manager=mock_citation_manager
+            citation_manager=mock_citation_manager,
         )
 
         templates = ["academic", "report", "blog"]
@@ -143,7 +155,11 @@ class TestDocumentGenerator:
         mock_planner = MagicMock()
         mock_planner_class.return_value = mock_planner
         mock_plan = MagicMock()
-        mock_plan.sections = [MagicMock(title="Intro"), MagicMock(title="Body"), MagicMock(title="Concl")]
+        mock_plan.sections = [
+            MagicMock(title="Intro"),
+            MagicMock(title="Body"),
+            MagicMock(title="Concl"),
+        ]
         mock_plan.introduction = mock_plan.sections[0]
         mock_plan.main_sections = [mock_plan.sections[1]]
         mock_plan.conclusion = mock_plan.sections[2]
@@ -161,7 +177,7 @@ class TestDocumentGenerator:
         generator = DocumentGenerator(
             document_planner=mock_planner,
             content_generator=content_generator,
-            citation_manager=mock_citation_manager
+            citation_manager=mock_citation_manager,
         )
 
         formats = ["markdown", "html", "text"]
@@ -205,31 +221,36 @@ class TestDocumentGenerator:
                     os.unlink(output_path)
 
     @pytest.mark.skipif(not os.getenv("GOOGLE_API_KEY"), reason="No API key available")
-    @patch("core.citations.citation_manager.CitationManager") # Mock citation manager for API test too
+    @patch(
+        "core.citations.citation_manager.CitationManager"
+    )  # Mock citation manager for API test too
     def test_with_real_api(self, mock_citation_manager_class):
         """Test document generation with real API (skipped if no API key)."""
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-             pytest.skip("GOOGLE_API_KEY not set")
+            pytest.skip("GOOGLE_API_KEY not set")
 
         # Use real providers/managers where possible, mock others
         try:
-             model_provider = GeminiProvider(api_key=api_key, model_name="gemini-pro") # Use standard model name
-             content_generator = ContentGenerator(model_provider=model_provider)
-             document_planner = DocumentPlanner() # Use real planner
+            model_provider = GeminiProvider(
+                api_key=api_key, model_name="gemini-pro"
+            )  # Use standard model name
+            content_generator = ContentGenerator(model_provider=model_provider)
+            document_planner = DocumentPlanner()  # Use real planner
         except Exception as e:
-             pytest.skip(f"Skipping real API test due to initialization error: {e}")
-
+            pytest.skip(f"Skipping real API test due to initialization error: {e}")
 
         mock_citation_manager = MagicMock()
         mock_citation_manager_class.return_value = mock_citation_manager
-        mock_citation_manager.search_papers.return_value = [] # Keep citations mocked for speed/simplicity
+        mock_citation_manager.search_papers.return_value = (
+            []
+        )  # Keep citations mocked for speed/simplicity
         mock_citation_manager.select_citations_for_section.return_value = []
 
         generator = DocumentGenerator(
             document_planner=document_planner,
             content_generator=content_generator,
-            citation_manager=mock_citation_manager
+            citation_manager=mock_citation_manager,
         )
 
         with NamedTemporaryFile(suffix=".md", delete=False) as tmp:

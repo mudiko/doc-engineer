@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from core.orchestration.document_generator import DocumentGenerator
 from core.generation.content_generator import ContentGenerator, MockProvider, GeminiProvider
 from core.citations.citation_manager import CitationManager
-from core.planning.document_planner import DocumentPlanner # Added import
+from core.planning.document_planner import DocumentPlanner  # Added import
 
 
 def main():
@@ -27,16 +27,10 @@ def main():
         description="Doc Engineer - Generate well-structured documents on any topic"
     )
     parser.add_argument(
-        "title", 
-        nargs="?", 
-        default="Advancements of AI", 
-        help="Title of the document to generate"
+        "title", nargs="?", default="Advancements of AI", help="Title of the document to generate"
     )
     parser.add_argument(
-        "--sections", 
-        type=int, 
-        default=5, 
-        help="Number of main sections to generate"
+        "--sections", type=int, default=5, help="Number of main sections to generate"
     )
     parser.add_argument(
         "--pages",
@@ -56,57 +50,60 @@ def main():
         default="markdown",
         help="Output format",
     )
+    parser.add_argument("--output", default="generated_document.md", help="Output file path")
     parser.add_argument(
-        "--output", 
-        default="generated_document.md", 
-        help="Output file path"
+        "--api-key", default=None, help="Google API key (overrides environment variable)"
     )
     parser.add_argument(
-        "--api-key", 
-        default=None, 
-        help="Google API key (overrides environment variable)"
+        "--mock", action="store_true", help="Use mock provider instead of Gemini API"
     )
     parser.add_argument(
-        "--mock", 
-        action="store_true", 
-        help="Use mock provider instead of Gemini API"
+        "--hide-tokens", action="store_true", help="Hide detailed token usage statistics"
     )
     parser.add_argument(
-        "--hide-tokens", 
-        action="store_true", 
-        help="Hide detailed token usage statistics"
+        "--with-citations", action="store_true", help="Include citations from academic papers"
     )
     parser.add_argument(
-        "--with-citations", 
-        action="store_true", 
-        help="Include citations from academic papers"
+        "--scopus-api-key",
+        default=None,
+        help="Scopus API key for citation search (overrides environment variable)",
     )
     parser.add_argument(
-        "--scopus-api-key", 
-        default=None, 
-        help="Scopus API key for citation search (overrides environment variable)"
-    )
-    parser.add_argument(
-        "--ieee-api-key", 
-        default=None, 
-        help="IEEE API key for citation search (overrides environment variable)"
+        "--ieee-api-key",
+        default=None,
+        help="IEEE API key for citation search (overrides environment variable)",
     )
     parser.add_argument(
         "--use-semantic-scholar",
         action="store_true",
-        help="Use Semantic Scholar for citation retrieval (default)"
+        help="Use Semantic Scholar for citation retrieval (default)",
     )
     parser.add_argument(
         "--use-findpapers",
         action="store_true",
-        help="Use findpapers instead of Semantic Scholar for citation retrieval"
+        help="Use findpapers instead of Semantic Scholar for citation retrieval",
+    )
+    parser.add_argument(
+        "--use-pypaper-bot",
+        action="store_true",
+        help="Use PyPaperBot to discover and download papers",
+    )
+    parser.add_argument(
+        "--pypaper-bot-mirror",
+        default=None,
+        help="Sci-Hub mirror to use with PyPaperBot (e.g., https://sci-hub.do)",
+    )
+    parser.add_argument(
+        "--pypaper-bot-proxy",
+        default=None,
+        help="Proxy for PyPaperBot to use (e.g., http://proxy-server:port)",
     )
 
     args = parser.parse_args()
 
     # Check if we're using environment variable for API key
     api_key = args.api_key or os.getenv("GOOGLE_API_KEY")
-    
+
     # Set environment variables for citation APIs if provided
     if args.scopus_api_key:
         os.environ["SCOPUS_API_TOKEN"] = args.scopus_api_key
@@ -116,11 +113,19 @@ def main():
     # Determine which citation source to use
     # By default, use Semantic Scholar unless findpapers is explicitly requested
     use_semantic_scholar = not args.use_findpapers
-    
+
     if args.use_findpapers:
         print("Using findpapers for citations as requested")
     else:
         print("Using Semantic Scholar for citations (default)")
+
+    # Log PyPaperBot settings if enabled
+    if args.use_pypaper_bot:
+        print("PyPaperBot will be used for additional paper discovery and download")
+        if args.pypaper_bot_mirror:
+            print(f"Using Sci-Hub mirror: {args.pypaper_bot_mirror}")
+        if args.pypaper_bot_proxy:
+            print(f"Using proxy: {args.pypaper_bot_proxy}")
 
     # --- Dependency Injection Setup ---
     # 1. Create Model Provider
@@ -136,9 +141,9 @@ def main():
             print("Please install it with: poetry add google-generativeai")
             print("Or use --mock to run with mock data for demonstration.")
             sys.exit(1)
-        except ValueError as e: # Catch missing API key error from GeminiProvider
-             print(f"Error: {e}")
-             sys.exit(1)
+        except ValueError as e:  # Catch missing API key error from GeminiProvider
+            print(f"Error: {e}")
+            sys.exit(1)
 
     # 2. Create Content Generator
     content_generator = ContentGenerator(model_provider=model_provider)
@@ -147,19 +152,22 @@ def main():
     citation_manager = CitationManager(
         scopus_api_token=os.getenv("SCOPUS_API_TOKEN"),
         ieee_api_token=os.getenv("IEEE_API_TOKEN"),
-        use_semantic_scholar=use_semantic_scholar and not args.mock # Pass mock status here
+        use_semantic_scholar=use_semantic_scholar and not args.mock,  # Pass mock status here
+        use_pypaper_bot=args.use_pypaper_bot,
+        pypaper_bot_mirror=args.pypaper_bot_mirror,
+        pypaper_bot_proxy=args.pypaper_bot_proxy,
     )
 
     # 4. Create Document Planner
     # Note: Planner might use its own model instance or could potentially share one
     # For now, it initializes its own based on GOOGLE_API_KEY env var
-    document_planner = DocumentPlanner() # Assuming default model is okay
+    document_planner = DocumentPlanner()  # Assuming default model is okay
 
     # 5. Create Document Generator with injected dependencies
     generator = DocumentGenerator(
-        document_planner=document_planner, # Inject planner
+        document_planner=document_planner,  # Inject planner
         content_generator=content_generator,
-        citation_manager=citation_manager
+        citation_manager=citation_manager,
     )
     # --- End Dependency Injection Setup ---
 

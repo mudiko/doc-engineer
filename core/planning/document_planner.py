@@ -16,18 +16,20 @@ class DocumentPlanner:
         # Ensure API key is configured before creating the model
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-             # Handle missing API key gracefully, maybe raise an error or use a mock
-             print("Warning: GOOGLE_API_KEY not found. Planner might not function correctly.")
-             self.model = None # Or initialize a mock model
+            # Handle missing API key gracefully, maybe raise an error or use a mock
+            print("Warning: GOOGLE_API_KEY not found. Planner might not function correctly.")
+            self.model = None  # Or initialize a mock model
         else:
-             genai.configure(api_key=api_key)
-             try:
-                 self.model = genai.GenerativeModel(model_name)
-             except Exception as e:
-                 print(f"Error initializing Gemini model for planner: {e}")
-                 self.model = None # Fallback if model init fails
+            genai.configure(api_key=api_key)
+            try:
+                self.model = genai.GenerativeModel(model_name)
+            except Exception as e:
+                print(f"Error initializing Gemini model for planner: {e}")
+                self.model = None  # Fallback if model init fails
 
-    def create_plan(self, topic: str, num_sections: int = 5, target_length_words: Optional[int] = None) -> DocumentPlan:
+    def create_plan(
+        self, topic: str, num_sections: int = 5, target_length_words: Optional[int] = None
+    ) -> DocumentPlan:
         """
         Create a detailed document plan with sections and subsections.
         Uses the configured AI model and falls back to a default plan on error.
@@ -40,7 +42,7 @@ class DocumentPlanner:
         Returns:
             A DocumentPlan object.
         """
-        target_length = target_length_words or 4000 # Default target length if not provided
+        target_length = target_length_words or 4000  # Default target length if not provided
 
         # Check if the model was initialized successfully
         if not self.model:
@@ -121,7 +123,6 @@ YOUR RESPONSE MUST BE ONLY THE JSON OBJECT WITH NO ADDITIONAL TEXT."""
             # Ensure topic is included when calling from_dict
             return DocumentPlan.from_dict(plan_data, topic=topic)
 
-
         except Exception as e:
             print(f"Error creating document plan with API: {e}")
             print(f"Raw response: {response.text if 'response' in locals() else 'No response'}")
@@ -137,23 +138,28 @@ YOUR RESPONSE MUST BE ONLY THE JSON OBJECT WITH NO ADDITIONAL TEXT."""
         intro_length = int(target_length * 0.1)
         conclusion_length = int(target_length * 0.1)
         # Ensure main_section_length is at least 1
-        main_section_length = max(1, int((target_length - intro_length - conclusion_length) / num_sections))
+        main_section_length = max(
+            1, int((target_length - intro_length - conclusion_length) / num_sections)
+        )
         # Adjust total length if rounding caused issues
         calculated_total = intro_length + conclusion_length + (main_section_length * num_sections)
         if calculated_total != target_length:
-             # Adjust the last main section length to match the target
-             diff = target_length - calculated_total
-             # Ensure the adjustment doesn't make the last section length negative
-             if main_section_length + diff > 0:
-                 main_section_lengths = [main_section_length] * (num_sections - 1) + [main_section_length + diff]
-             else: # Distribute difference more evenly if adjustment is too large
-                 main_section_lengths = [main_section_length] * num_sections
-                 # Add difference to first section if possible
-                 main_section_lengths[0] = max(1, main_section_lengths[0] + diff)
-             target_length = intro_length + conclusion_length + sum(main_section_lengths) # Recalculate total
+            # Adjust the last main section length to match the target
+            diff = target_length - calculated_total
+            # Ensure the adjustment doesn't make the last section length negative
+            if main_section_length + diff > 0:
+                main_section_lengths = [main_section_length] * (num_sections - 1) + [
+                    main_section_length + diff
+                ]
+            else:  # Distribute difference more evenly if adjustment is too large
+                main_section_lengths = [main_section_length] * num_sections
+                # Add difference to first section if possible
+                main_section_lengths[0] = max(1, main_section_lengths[0] + diff)
+            target_length = (
+                intro_length + conclusion_length + sum(main_section_lengths)
+            )  # Recalculate total
         else:
-             main_section_lengths = [main_section_length] * num_sections
-
+            main_section_lengths = [main_section_length] * num_sections
 
         # Create introduction
         introduction = Section(
@@ -197,7 +203,7 @@ YOUR RESPONSE MUST BE ONLY THE JSON OBJECT WITH NO ADDITIONAL TEXT."""
 
     def _extract_json(self, text: str) -> str:
         """Extract a JSON string from text, handling common formatting issues."""
-        import re # Moved import here as it's only used in this method
+        import re  # Moved import here as it's only used in this method
 
         # Clean up the text
         text = text.strip()
@@ -223,7 +229,9 @@ YOUR RESPONSE MUST BE ONLY THE JSON OBJECT WITH NO ADDITIONAL TEXT."""
 
         # Simple smart quotes replacement
         text = text.replace('"', '"').replace('"', '"')
-        text = text.replace("'", "'").replace("'", "'") # Keep single quotes for now, json.loads handles them
+        text = text.replace("'", "'").replace(
+            "'", "'"
+        )  # Keep single quotes for now, json.loads handles them
 
         # If the text doesn't start with {, attempt to find the first { and last }
         if not text.startswith("{"):
@@ -245,8 +253,8 @@ YOUR RESPONSE MUST BE ONLY THE JSON OBJECT WITH NO ADDITIONAL TEXT."""
         if open_braces > close_braces:
             text += "}" * (open_braces - close_braces)
         elif close_braces > open_braces:
-             # Too many closing braces? Try removing from the end. Risky.
-             pass # Or maybe find the first '{' and last '}' more reliably
+            # Too many closing braces? Try removing from the end. Risky.
+            pass  # Or maybe find the first '{' and last '}' more reliably
 
         # It's generally better to let json.loads handle final validation
         # than to apply complex regex fixes that might break valid JSON.

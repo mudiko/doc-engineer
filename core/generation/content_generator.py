@@ -22,9 +22,7 @@ class ModelProvider(Protocol):
 class GeminiProvider:
     """Implementation of ModelProvider using Google's Gemini models."""
 
-    def __init__(
-        self, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash"
-    ):
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash"):
         # Import here to avoid requiring google package for mock usage
         import google.generativeai as genai
 
@@ -275,7 +273,10 @@ class MockProvider:
             response = self.responses["section_content"]
         elif "Review the following new section for consistency" in prompt:
             response = self.responses["consistency"]
-        elif "Evaluate this academic document" in prompt and "provide a comprehensive critique" in prompt:
+        elif (
+            "Evaluate this academic document" in prompt
+            and "provide a comprehensive critique" in prompt
+        ):
             response = self.responses["document_critique"]
         elif "Evaluate this academic document" in prompt:
             response = self.responses["critique"]
@@ -289,6 +290,7 @@ class MockProvider:
 
         # Create a SimpleNamespace to mimic the structure of a real response
         from types import SimpleNamespace
+
         return SimpleNamespace(text=response)
 
 
@@ -303,7 +305,7 @@ class ContentGenerator:
         self.max_output_tokens = 8192
         # Token usage tracking
         self.total_input_tokens = 0
-        self.total_output_tokens = 0 
+        self.total_output_tokens = 0
         self.total_api_calls = 0
 
     def generate_section_content(
@@ -340,10 +342,10 @@ Write the abstract as continuous prose with no markdown formatting or special ch
                 max_output_tokens=self._words_to_tokens(section.estimated_length * 1.5),
                 purpose="generating abstract",
             )
-            
+
             # Clean any potential markdown from the response
             cleaned_content = self._clean_markdown_blocks(content)
-            
+
             return GeneratedSection(
                 title=section.title,
                 content=cleaned_content,
@@ -732,11 +734,11 @@ If there are issues, describe them clearly and concisely, focusing on the most i
         """
         # Track API call
         self.total_api_calls += 1
-        
+
         # Estimate tokens in prompt (this is a rough approximation)
         estimated_input_tokens = len(prompt.split()) // 1  # ~1 word per token
         self.total_input_tokens += estimated_input_tokens
-        
+
         # Try generating content with retries
         for attempt in range(max_retries + 1):  # +1 for the initial attempt
             try:
@@ -747,39 +749,47 @@ If there are issues, describe them clearly and concisely, focusing on the most i
                         "max_output_tokens": max_output_tokens,
                     },
                 )
-                
+
                 # Check if response is empty or None
-                if not response or not hasattr(response, 'text') or not response.text:
+                if not response or not hasattr(response, "text") or not response.text:
                     if attempt < max_retries:
                         # Log the retry
-                        print(f"Received empty response from model. Retrying ({attempt + 1}/{max_retries})...")
+                        print(
+                            f"Received empty response from model. Retrying ({attempt + 1}/{max_retries})..."
+                        )
                         # Use exponential backoff for retries
                         import time
-                        time.sleep(retry_delay * (2 ** attempt))
+
+                        time.sleep(retry_delay * (2**attempt))
                         continue
                     else:
                         # After all retries, return fallback content
                         error_message = f"Error generating {purpose}: Received empty response after {max_retries} retries"
                         print(error_message)
                         return f"[{error_message}]"
-                
+
                 # Successful response
                 # Estimate tokens in response
                 estimated_output_tokens = len(response.text.split()) // 1  # ~1 word per token
                 self.total_output_tokens += estimated_output_tokens
-                
+
                 return response.text
 
             except Exception as e:
                 if attempt < max_retries:
                     # Log the retry
-                    print(f"Error generating {purpose}: {str(e)}. Retrying ({attempt + 1}/{max_retries})...")
+                    print(
+                        f"Error generating {purpose}: {str(e)}. Retrying ({attempt + 1}/{max_retries})..."
+                    )
                     # Use exponential backoff for retries
                     import time
-                    time.sleep(retry_delay * (2 ** attempt))
+
+                    time.sleep(retry_delay * (2**attempt))
                 else:
                     # After all retries, return fallback content
-                    error_message = f"Error generating {purpose} after {max_retries} retries: {str(e)}"
+                    error_message = (
+                        f"Error generating {purpose} after {max_retries} retries: {str(e)}"
+                    )
                     print(error_message)
                     return f"[{error_message}]"
 
@@ -1078,27 +1088,23 @@ Target Length: {section.estimated_length} words"""
 
         return text
 
-    def generate_document_critique(
-        self,
-        title: str,
-        sections: List[GeneratedSection]
-    ) -> str:
+    def generate_document_critique(self, title: str, sections: List[GeneratedSection]) -> str:
         """
         Generate a comprehensive critique of the entire document.
-        
+
         Args:
             title: The document title
             sections: List of generated sections
-            
+
         Returns:
             A critique of the entire document
         """
         # Format sections for critique
         sections_text = "\n\n".join(
-            f"SECTION {i}: {section.title}\n{section.content[:300]}..." 
+            f"SECTION {i}: {section.title}\n{section.content[:300]}..."
             for i, section in enumerate(sections)
         )
-        
+
         prompt = f"""Evaluate this academic document about "{title}" and provide a comprehensive critique:
 
 {sections_text}
@@ -1119,5 +1125,5 @@ Your critique should focus on structural and content-level issues rather than de
             max_output_tokens=min(3000, self.max_output_tokens),
             purpose="generating document-wide critique",
         )
-        
+
         return critique

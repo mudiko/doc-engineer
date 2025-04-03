@@ -43,7 +43,7 @@ class Section:
             description="A concise summary of the document",
             subsections=["Summary"],
             estimated_length=estimated_length,
-            level=2
+            level=2,
         )
 
 

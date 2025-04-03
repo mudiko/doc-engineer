@@ -10,6 +10,7 @@ import json
 import datetime
 import logging
 import uuid
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Set
 
@@ -26,6 +27,9 @@ class CitationManager:
         ieee_api_token: Optional[str] = None,
         proxy: Optional[str] = None,
         use_semantic_scholar: bool = True,
+        use_pypaper_bot: bool = False,
+        pypaper_bot_mirror: Optional[str] = None,
+        pypaper_bot_proxy: Optional[str] = None,
     ):
         """
         Initialize the citation manager.
@@ -36,6 +40,9 @@ class CitationManager:
             ieee_api_token: API token for IEEE database
             proxy: Proxy URL for downloading papers
             use_semantic_scholar: Whether to use Semantic Scholar instead of findpapers
+            use_pypaper_bot: Whether to use PyPaperBot for paper discovery and download
+            pypaper_bot_mirror: Mirror for downloading papers from sci-hub via PyPaperBot
+            pypaper_bot_proxy: Proxy settings for PyPaperBot
         """
         self.logger = logging.getLogger(__name__)
         
@@ -63,6 +70,13 @@ class CitationManager:
             self.logger.info("Will attempt to use Semantic Scholar for citations")
         else:
             self.logger.info("Will attempt to use findpapers for citations")
+        
+        # PyPaperBot configuration
+        self.use_pypaper_bot = use_pypaper_bot
+        self.pypaper_bot_mirror = pypaper_bot_mirror
+        self.pypaper_bot_proxy = pypaper_bot_proxy
+        if self.use_pypaper_bot:
+            self.logger.info("Will use PyPaperBot for additional paper discovery and download")
         
         # In-memory storage for vector indexes
         self.vector_indexes = {}
@@ -252,53 +266,338 @@ class CitationManager:
         use_mock: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Search for papers on a specific topic.
+        Search for papers related to the topic.
         
         Args:
-            topic: The topic to search for
+            topic: Topic to search for
             document_id: Unique identifier for the document
-            since_year: Start year for search range
-            until_year: End year for search range
+            since_year: Only papers published after this year
+            until_year: Only papers published before this year
             limit: Maximum number of papers to return
-            limit_per_database: Maximum papers per database
+            limit_per_database: Maximum number of papers per database
             databases: List of databases to search
-            publication_types: Types of publications to include
-            use_mock: If True, use mock data instead of real search
+            publication_types: List of publication types to include
+            use_mock: Whether to use mock data instead of real APIs
             
         Returns:
-            List of papers metadata
+            List of paper metadata
         """
-        # If mock mode is explicitly requested, use the fallback method directly
-        if use_mock:
-            self.logger.info(f"Mock mode requested for '{topic}'")
-            return self._fallback_search(topic, document_id, limit)
+        # Create document directory if it doesn't exist
+        document_dir = os.path.join(self.cache_dir, document_id)
+        os.makedirs(document_dir, exist_ok=True)
         
-        # If Semantic Scholar is enabled, use it
-        if self.use_semantic_scholar:
-            self.logger.info(f"Using Semantic Scholar to search for papers on '{topic}'")
-            return self._search_semantic_scholar(topic, document_id, limit, since_year)
+        # Path to save search results
+        result_path = os.path.join(document_dir, "result.json")
+        
+        # Check if we have cached results
+        if os.path.exists(result_path) and not use_mock:
+            try:
+                # Load cached results
+                with open(result_path, 'r', encoding='utf-8') as f:
+                    cached_results = json.load(f)
+                    
+                self.logger.info(f"Using cached results from {result_path}")
+                
+                # Store paper IDs in document_citations
+                self.document_citations[document_id] = set(paper.get("key", "") for paper in cached_results.get("papers", []))
+                
+                return cached_results.get("papers", [])
+            except Exception as e:
+                self.logger.warning(f"Error loading cached results: {str(e)}")
+                # Continue with new search if cached results failed to load
+        
+        # Use mock data if specified or if in mock mode
+        if use_mock:
+            self.logger.info("Using mock citation data")
             
-        # Try using findpapers if available
-        try:
-            import findpapers
-            self.logger.info(f"Using findpapers to search for papers on '{topic}'")
-            return self._search_findpapers(
-                topic, document_id, since_year, until_year, 
-                limit, limit_per_database, databases, publication_types
+            # Get mock citations for this topic
+            # First check if there is an exact match
+            if topic.lower() in self.mock_citations:
+                mock_papers = self.mock_citations[topic.lower()]
+            else:
+                # Otherwise find the closest matching topic
+                matched_topic = None
+                for mock_topic in self.mock_citations:
+                    # Simple overlap of words for matching
+                    topic_words = set(topic.lower().split())
+                    mock_topic_words = set(mock_topic.split())
+                    if topic_words.intersection(mock_topic_words):
+                        matched_topic = mock_topic
+                        break
+                        
+                if matched_topic:
+                    mock_papers = self.mock_citations[matched_topic]
+                else:
+                    # Use neural networks as default fallback
+                    mock_papers = self.mock_citations["neural_networks"]
+                    
+            # Apply year filter if specified
+            if since_year:
+                mock_papers = [p for p in mock_papers if int(p.get("year", 0)) >= since_year]
+                
+            if until_year:
+                mock_papers = [p for p in mock_papers if int(p.get("year", 0)) <= until_year]
+                
+            # Limit the number of papers
+            mock_papers = mock_papers[:limit]
+            
+            # Store in document_citations
+            self.document_citations[document_id] = set(paper.get("bibtex_key", "") for paper in mock_papers)
+            
+            return mock_papers
+            
+        # Try with PyPaperBot if enabled
+        if self.use_pypaper_bot:
+            papers_from_pypaper = self._search_papers_with_pypaper_bot(
+                topic, 
+                document_id, 
+                since_year=since_year
             )
-        except (ImportError, AttributeError) as e:
-            self.logger.warning(f"Failed to use findpapers: {str(e)}")
             
-        # Fall back to mock data if neither is available
-        self.logger.warning("No citation search provider available, using mock data")
-        return self._fallback_search(topic, document_id, limit)
+            if papers_from_pypaper:
+                self.logger.info(f"Found {len(papers_from_pypaper)} papers using PyPaperBot")
+                
+                # Save results to cache
+                result_data = {"papers": papers_from_pypaper}
+                with open(result_path, 'w', encoding='utf-8') as f:
+                    json.dump(result_data, f, indent=2)
+                
+                # Store paper IDs in document_citations
+                self.document_citations[document_id] = set(paper.get("bibtex_key", "") for paper in papers_from_pypaper)
+                
+                return papers_from_pypaper
+
+        # Use Semantic Scholar if enabled
+        if self.use_semantic_scholar:
+            try:
+                self.logger.info("Searching papers with Semantic Scholar")
+                papers = self._search_papers_with_semantic_scholar(
+                    topic, 
+                    document_id,
+                    since_year=since_year, 
+                    until_year=until_year, 
+                    limit=limit
+                )
+                
+                if papers:
+                    self.logger.info(f"Found {len(papers)} papers using Semantic Scholar")
+                    
+                    # Save results to cache
+                    result_data = {"papers": papers}
+                    with open(result_path, 'w', encoding='utf-8') as f:
+                        json.dump(result_data, f, indent=2)
+                    
+                    # Store paper IDs in document_citations
+                    self.document_citations[document_id] = set(paper.get("bibtex_key", "") for paper in papers)
+                    
+                    return papers
+            except Exception as e:
+                self.logger.error(f"Error searching with Semantic Scholar: {str(e)}")
+                # If error contains ImportError or ModuleNotFoundError, indicate installation issue
+                if "ImportError" in str(e) or "ModuleNotFoundError" in str(e):
+                    self.logger.error("Semantic Scholar modules are not properly installed.")
+                    self.logger.error("Please install with: pip install llama-index-readers-semanticscholar llama-index-core llama-index-llms-gemini pypdf")
+                self.logger.info("Falling back to mock citation data")
+                return self._fallback_search(topic, document_id, limit)
+        
+        # Fall back to findpapers
+        try:
+            self.logger.info("Searching papers with findpapers")
+            papers = self._search_papers_with_findpapers(
+                topic, 
+                since_year=since_year, 
+                until_year=until_year, 
+                limit=limit, 
+                limit_per_database=limit_per_database,
+                databases=databases, 
+                publication_types=publication_types
+            )
             
-    def _search_semantic_scholar(
+            if papers:
+                self.logger.info(f"Found {len(papers)} papers using findpapers")
+                
+                # Save results to cache
+                result_data = {"papers": papers}
+                with open(result_path, 'w', encoding='utf-8') as f:
+                    json.dump(result_data, f, indent=2)
+                
+                # Store paper IDs in document_citations
+                self.document_citations[document_id] = set(paper.get("bibtex_key", "") for paper in papers)
+                
+                return papers
+        except Exception as e:
+            self.logger.error(f"Error searching with findpapers: {str(e)}")
+        
+        # If all else failed, return empty list
+        self.logger.warning("Could not find any papers using available methods")
+        return []
+        
+    def _search_papers_with_pypaper_bot(
+        self,
+        topic: str,
+        document_id: str,
+        since_year: Optional[int] = None,
+        max_pages: int = 3
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for papers using PyPaperBot.
+        
+        Args:
+            topic: Topic to search for
+            document_id: Unique identifier for the document
+            since_year: Only papers published after this year
+            max_pages: Maximum number of Google Scholar pages to inspect
+            
+        Returns:
+            List of paper metadata
+        """
+        self.logger.info(f"Searching papers with PyPaperBot for topic: {topic}")
+        
+        # Create directories for PyPaperBot to use
+        papers_dir = os.path.join(self.cache_dir, document_id, "papers_pypaper")
+        os.makedirs(papers_dir, exist_ok=True)
+        
+        # Clean topic for search query
+        clean_topic = topic.replace(" ", "+")
+        
+        # Build PyPaperBot command
+        cmd = ["python", "-m", "PyPaperBot"]
+        cmd.extend(["--query", f'"{clean_topic}"'])
+        cmd.extend(["--scholar-pages", f"{max_pages}"])
+        cmd.extend(["--dwn-dir", papers_dir])
+        
+        # Add minimum year if specified
+        if since_year:
+            cmd.extend(["--min-year", f"{since_year}"])
+            
+        # Add Sci-Hub mirror if specified
+        if self.pypaper_bot_mirror:
+            cmd.extend(["--scihub-mirror", self.pypaper_bot_mirror])
+            
+        # Add proxy if specified
+        if self.pypaper_bot_proxy:
+            cmd.extend(["--single-proxy", self.pypaper_bot_proxy])
+            
+        # Run PyPaperBot
+        try:
+            self.logger.info(f"Running PyPaperBot with command: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            
+            if result.returncode != 0:
+                self.logger.error(f"PyPaperBot failed with return code {result.returncode}")
+                self.logger.error(f"Error output: {result.stderr}")
+                return []
+                
+            self.logger.info("PyPaperBot completed successfully")
+            
+            # Process the downloaded papers
+            papers = self._process_pypaper_bot_results(papers_dir, document_id)
+            return papers
+            
+        except Exception as e:
+            self.logger.error(f"Error running PyPaperBot: {str(e)}")
+            return []
+            
+    def _process_pypaper_bot_results(self, papers_dir: str, document_id: str) -> List[Dict[str, Any]]:
+        """
+        Process the results from PyPaperBot.
+        
+        Args:
+            papers_dir: Directory containing downloaded papers
+            document_id: Unique identifier for the document
+            
+        Returns:
+            List of paper metadata
+        """
+        papers = []
+        bibtex_file = os.path.join(papers_dir, "bibtex.bib")
+        
+        # Parse BibTeX file if it exists
+        if os.path.exists(bibtex_file):
+            try:
+                with open(bibtex_file, 'r', encoding='utf-8') as f:
+                    bibtex_content = f.read()
+                    
+                # Process BibTeX entries
+                import re
+                bibtex_entries = re.findall(r'@(\w+)\{([\w\d\-]+),\s*([\s\S]*?)(?=@\w+\{|\Z)', bibtex_content)
+                
+                for entry_type, key, content in bibtex_entries:
+                    # Extract paper metadata from BibTeX
+                    title_match = re.search(r'title\s*=\s*[{"](.*?)[}"],?', content)
+                    author_match = re.search(r'author\s*=\s*[{"](.*?)[}"],?', content)
+                    year_match = re.search(r'year\s*=\s*[{"]*(\d+)[}"]*,?', content)
+                    journal_match = re.search(r'journal\s*=\s*[{"](.*?)[}"],?', content)
+                    
+                    title = title_match.group(1) if title_match else "Unknown Title"
+                    authors_str = author_match.group(1) if author_match else ""
+                    year = year_match.group(1) if year_match else ""
+                    journal = journal_match.group(1) if journal_match else "Unknown Source"
+                    
+                    # Process authors
+                    authors = [author.strip() for author in authors_str.split(" and ")]
+                    
+                    # Check if PDF exists
+                    pdf_path = None
+                    potential_pdf_paths = [
+                        os.path.join(papers_dir, f"{key}.pdf"),
+                        os.path.join(papers_dir, f"{title}.pdf"),
+                        os.path.join(papers_dir, f"{title.replace(':', '')}.pdf")
+                    ]
+                    
+                    for path in potential_pdf_paths:
+                        if os.path.exists(path):
+                            pdf_path = path
+                            break
+                    
+                    # Create paper metadata
+                    paper = {
+                        "bibtex_key": key,
+                        "title": title,
+                        "authors": authors,
+                        "year": year,
+                        "database": journal,
+                        "abstract": "",  # Will need to extract from PDF if needed
+                        "local_pdf": pdf_path
+                    }
+                    
+                    papers.append(paper)
+                    
+                # Store in document_citations
+                self.document_citations[document_id] = self.document_citations.get(document_id, set()).union(
+                    set(paper.get("bibtex_key", "") for paper in papers)
+                )
+                
+            except Exception as e:
+                self.logger.error(f"Error processing BibTeX file: {str(e)}")
+        
+        # If no BibTeX file, try to find PDFs directly
+        if not papers:
+            self.logger.info("No BibTeX file found, searching for PDFs directly")
+            for file in os.listdir(papers_dir):
+                if file.endswith(".pdf"):
+                    # Create a simple metadata entry for each PDF
+                    key = os.path.splitext(file)[0]
+                    paper = {
+                        "bibtex_key": key,
+                        "title": key,
+                        "authors": [],
+                        "year": "",
+                        "database": "Unknown",
+                        "abstract": "",
+                        "local_pdf": os.path.join(papers_dir, file)
+                    }
+                    papers.append(paper)
+        
+        return papers
+    
+    def _search_papers_with_semantic_scholar(
         self, 
         topic: str, 
-        document_id: str, 
-        limit: int = 30,
-        since_year: Optional[int] = None,
+        document_id: str,
+        since_year: Optional[int] = None, 
+        until_year: Optional[int] = None, 
+        limit: int = 30
     ) -> List[Dict[str, Any]]:
         """
         Search for papers using Semantic Scholar and create a vector index.
@@ -306,8 +605,9 @@ class CitationManager:
         Args:
             topic: The search query
             document_id: Unique identifier for the document
-            limit: Maximum number of papers to return
             since_year: Start year for search range
+            until_year: End year for search range
+            limit: Maximum number of papers to return
             
         Returns:
             List of papers metadata
@@ -480,23 +780,21 @@ class CitationManager:
             self.logger.info("Falling back to mock citation data")
             return self._fallback_search(topic, document_id, limit)
     
-    def _search_findpapers(
+    def _search_papers_with_findpapers(
         self,
         topic: str,
-        document_id: str,
         since_year: Optional[int] = None,
         until_year: Optional[int] = None,
         limit: int = 30,
         limit_per_database: int = 10,
         databases: Optional[List[str]] = None,
-        publication_types: Optional[List[str]] = None,
+        publication_types: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Search for papers using findpapers.
         
         Args:
             topic: The topic to search for
-            document_id: Unique identifier for the document
             since_year: Start year for search range
             until_year: End year for search range
             limit: Maximum number of papers to return

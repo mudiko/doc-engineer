@@ -16,6 +16,7 @@ import shutil
 # Import the CLI module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import doc_engineer
+
 # Updated imports
 from core.orchestration.document_generator import DocumentGenerator
 from core.generation.content_generator import MockProvider, GeminiProvider
@@ -50,7 +51,7 @@ class TestCLI:
     # The provider logic is now within DocumentGenerator.__init__
 
     @patch("argparse.ArgumentParser.parse_args")
-    @patch("doc_engineer.DocumentGenerator") # Mock the class imported into doc_engineer
+    @patch("doc_engineer.DocumentGenerator")  # Mock the class imported into doc_engineer
     def test_main_with_mock(self, mock_generator_class, mock_parse_args):
         """Test the main function with mock provider."""
         # Setup mocks
@@ -64,14 +65,14 @@ class TestCLI:
         mock_args.format = "markdown"
         mock_args.output = "test_output.md"
 
-        mock_args.hide_tokens = False # Add missing attributes used in main
+        mock_args.hide_tokens = False  # Add missing attributes used in main
         mock_args.with_citations = False
         mock_args.scopus_api_key = None
         mock_args.ieee_api_key = None
         mock_args.use_findpapers = False
-        mock_args.use_semantic_scholar = True # Added based on logic in main
+        mock_args.use_semantic_scholar = True  # Added based on logic in main
 
-        mock_parse_args.return_value = mock_args # Mock parse_args directly
+        mock_parse_args.return_value = mock_args  # Mock parse_args directly
 
         mock_generator = MagicMock()
         mock_generator_class.return_value = mock_generator
@@ -82,9 +83,7 @@ class TestCLI:
 
             # Check DocumentGenerator was instantiated correctly
             mock_generator_class.assert_called_once_with(
-                api_key=None,
-                mock=True,
-                use_semantic_scholar=True
+                api_key=None, mock=True, use_semantic_scholar=True
             )
 
             # Check that generate_document was called with correct parameters
@@ -102,15 +101,13 @@ class TestCLI:
             assert "Generating document" in output
 
     @patch("argparse.ArgumentParser.parse_args")
-    @patch("doc_engineer.DocumentGenerator") # Mock the class imported into doc_engineer
-    @patch("builtins.input", return_value="Prompted Title") # Mock input directly
-    def test_main_with_title_prompt(
-        self, mock_input, mock_generator_class, mock_parse_args
-    ):
+    @patch("doc_engineer.DocumentGenerator")  # Mock the class imported into doc_engineer
+    @patch("builtins.input", return_value="Prompted Title")  # Mock input directly
+    def test_main_with_title_prompt(self, mock_input, mock_generator_class, mock_parse_args):
         """Test the main function with title prompt."""
         # Setup mocks
         mock_args = MagicMock()
-        mock_args.title = None # No title provided, should prompt
+        mock_args.title = None  # No title provided, should prompt
         mock_args.mock = True
         mock_args.api_key = None
         mock_args.sections = 3
@@ -118,14 +115,14 @@ class TestCLI:
         mock_args.template = "academic"
         mock_args.format = "markdown"
         mock_args.output = "test_output.md"
-        mock_args.hide_tokens = False # Add missing attributes
+        mock_args.hide_tokens = False  # Add missing attributes
         mock_args.with_citations = False
         mock_args.scopus_api_key = None
         mock_args.ieee_api_key = None
         mock_args.use_findpapers = False
-        mock_args.use_semantic_scholar = True # Added based on logic in main
+        mock_args.use_semantic_scholar = True  # Added based on logic in main
 
-        mock_parse_args.return_value = mock_args # Mock parse_args directly
+        mock_parse_args.return_value = mock_args  # Mock parse_args directly
 
         mock_generator = MagicMock()
         mock_generator_class.return_value = mock_generator
@@ -134,21 +131,19 @@ class TestCLI:
         with patch("sys.stdout", new=StringIO()):
             # Need to mock argparse within main if setup_parser is gone
             with patch("argparse.ArgumentParser") as mock_arg_parser_class:
-                 # Configure the mock instance returned by ArgumentParser()
-                 mock_parser_instance = MagicMock()
-                 mock_parser_instance.parse_args.return_value = mock_args
-                 mock_arg_parser_class.return_value = mock_parser_instance
+                # Configure the mock instance returned by ArgumentParser()
+                mock_parser_instance = MagicMock()
+                mock_parser_instance.parse_args.return_value = mock_args
+                mock_arg_parser_class.return_value = mock_parser_instance
 
-                 doc_engineer.main()
+                doc_engineer.main()
 
             # Check that input was called for title prompt - This seems incorrect, title is handled by argparse now
             # mock_input.assert_called_once() # Removing this check as argparse handles default/missing title
 
             # Check DocumentGenerator was instantiated correctly
             mock_generator_class.assert_called_once_with(
-                api_key=None,
-                mock=True,
-                use_semantic_scholar=True
+                api_key=None, mock=True, use_semantic_scholar=True
             )
 
             # Check that generate_document was called with prompted title (or default)
